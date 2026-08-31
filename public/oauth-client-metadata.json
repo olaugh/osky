@@ -1,0 +1,12 @@
+{
+  "client_id": "https://olaugh.github.io/osky/oauth-client-metadata.json",
+  "client_name": "osky",
+  "client_uri": "https://olaugh.github.io/osky/",
+  "redirect_uris": ["https://olaugh.github.io/osky/"],
+  "scope": "atproto rpc:app.bsky.feed.getTimeline?aud=did:web:api.bsky.app%23bsky_appview",
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none",
+  "application_type": "web",
+  "dpop_bound_access_tokens": true
+}
