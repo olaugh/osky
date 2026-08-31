@@ -4,6 +4,7 @@ import {
   AppBskyActorDefs,
   AppBskyFeedDefs,
   AppBskyFeedPost,
+  AppBskyUnspeccedDefs,
 } from '@atproto/api'
 import { BrowserOAuthClient } from '@atproto/oauth-client-browser'
 
@@ -61,6 +62,13 @@ function formatDate(value: string) {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(new Date(value))
+}
+
+function formatCount(value: number) {
+  return new Intl.NumberFormat(undefined, {
+    notation: 'compact',
+    maximumFractionDigits: 1,
+  }).format(value)
 }
 
 function PostCard({
@@ -264,8 +272,14 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('')
   const [submittedSearch, setSubmittedSearch] = useState('')
   const [searching, setSearching] = useState(false)
+  const [searchFocused, setSearchFocused] = useState(false)
+  const [suggesting, setSuggesting] = useState(false)
+  const [suggestions, setSuggestions] = useState<AppBskyActorDefs.ProfileViewBasic[]>([])
   const [accountResults, setAccountResults] = useState<AppBskyActorDefs.ProfileView[]>([])
   const [postResults, setPostResults] = useState<AppBskyFeedDefs.PostView[]>([])
+  const [trends, setTrends] = useState<AppBskyUnspeccedDefs.TrendView[]>([])
+  const [trendsLoading, setTrendsLoading] = useState(false)
+  const [trendsError, setTrendsError] = useState('')
   const [profileActor, setProfileActor] = useState<string | null>(profileActorFromHash)
   const [profile, setProfile] = useState<AppBskyActorDefs.ProfileViewDetailed | null>(null)
   const [profileFeed, setProfileFeed] = useState<AppBskyFeedDefs.FeedViewPost[]>([])
@@ -370,6 +384,60 @@ export default function App() {
   }, [profileActor])
 
   useEffect(() => {
+    if (status !== 'signed-in') return
+
+    let cancelled = false
+    setTrendsLoading(true)
+    setTrendsError('')
+
+    async function loadTrends() {
+      try {
+        const response = await publicAgent.app.bsky.unspecced.getTrends({ limit: 6 })
+        if (!cancelled) setTrends(response.data.trends)
+      } catch {
+        if (!cancelled) setTrendsError('Trending topics are unavailable right now.')
+      } finally {
+        if (!cancelled) setTrendsLoading(false)
+      }
+    }
+
+    void loadTrends()
+    return () => {
+      cancelled = true
+    }
+  }, [status])
+
+  useEffect(() => {
+    const query = searchQuery.trim()
+    if (!searchFocused || !query) {
+      setSuggestions([])
+      setSuggesting(false)
+      return
+    }
+
+    let cancelled = false
+    const timeout = window.setTimeout(async () => {
+      setSuggesting(true)
+      try {
+        const response = await publicAgent.app.bsky.actor.searchActorsTypeahead({
+          q: query,
+          limit: 6,
+        })
+        if (!cancelled) setSuggestions(response.data.actors)
+      } catch {
+        if (!cancelled) setSuggestions([])
+      } finally {
+        if (!cancelled) setSuggesting(false)
+      }
+    }, 250)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timeout)
+    }
+  }, [searchFocused, searchQuery])
+
+  useEffect(() => {
     let cancelled = false
 
     async function initialize() {
@@ -435,12 +503,13 @@ export default function App() {
     void authorize(handle)
   }
 
-  async function search(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const query = searchQuery.trim()
+  async function runSearch(rawQuery: string) {
+    const query = rawQuery.trim()
     const agent = agentRef.current
     if (!agent || !canSearch || !query) return
 
+    setSearchQuery(query)
+    setSearchFocused(false)
     setSearching(true)
     setError('')
     try {
@@ -451,12 +520,18 @@ export default function App() {
       setAccountResults(accounts.data.actors)
       setPostResults(posts.data.posts)
       setSubmittedSearch(query)
+      if (window.location.hash) window.location.hash = ''
       window.scrollTo({ top: 0, behavior: 'smooth' })
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Search failed.')
     } finally {
       setSearching(false)
     }
+  }
+
+  function search(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    void runSearch(searchQuery)
   }
 
   function clearSearch() {
@@ -534,42 +609,9 @@ export default function App() {
 
       {status === 'signed-in' && (
         <section className="timeline">
-          <form className="search-bar" onSubmit={search}>
-            <label className="search-input">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  d="m21 21-4.35-4.35m2.35-5.65a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeLinecap="round"
-                  strokeWidth="2.25"
-                />
-              </svg>
-              <input
-                type="search"
-                aria-label="Search accounts and skeets"
-                placeholder="Search"
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                autoCapitalize="none"
-                autoCorrect="off"
-              />
-            </label>
-            <button type="submit" disabled={!canSearch || searching || !searchQuery.trim()}>
-              {searching ? 'Searching…' : 'Search'}
-            </button>
-          </form>
-
-          {!canSearch && (
-            <div className="permission-note">
-              <span>Search needs one additional read-only permission.</span>
-              <button onClick={() => authorize(signedInHandle)} disabled={busy}>
-                {busy ? 'Connecting…' : 'Enable search'}
-              </button>
-            </div>
-          )}
-
-          {error && <p className="error feed-error">{error}</p>}
+          <div className="app-layout">
+            <div className="primary-pane">
+              {error && <p className="error feed-error">{error}</p>}
 
           {profileActor ? (
             <ProfilePage
@@ -650,6 +692,143 @@ export default function App() {
               )}
             </>
           )}
+            </div>
+
+            <aside className="sidebar" aria-label="Search and trending topics">
+              <div className="sidebar-sticky">
+                <form
+                  className="search-bar"
+                  onSubmit={search}
+                  onFocus={() => setSearchFocused(true)}
+                  onBlur={(event) => {
+                    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                      setSearchFocused(false)
+                    }
+                  }}
+                >
+                  <label className="search-input">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        d="m21 21-4.35-4.35m2.35-5.65a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeLinecap="round"
+                        strokeWidth="2.25"
+                      />
+                    </svg>
+                    <input
+                      type="search"
+                      role="combobox"
+                      aria-label="Search accounts and skeets"
+                      aria-autocomplete="list"
+                      aria-controls="account-suggestions"
+                      aria-expanded={searchFocused && suggestions.length > 0}
+                      placeholder="Search"
+                      value={searchQuery}
+                      onChange={(event) => setSearchQuery(event.target.value)}
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      autoComplete="off"
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    disabled={!canSearch || searching || !searchQuery.trim()}
+                  >
+                    {searching ? '…' : 'Search'}
+                  </button>
+
+                  {searchFocused &&
+                    searchQuery.trim() &&
+                    (suggesting || suggestions.length > 0) && (
+                      <div
+                        id="account-suggestions"
+                        className="search-suggestions"
+                        role="listbox"
+                        aria-label="Suggested accounts"
+                      >
+                        {suggestions.map((suggestion) => (
+                          <a
+                            key={suggestion.did}
+                            className="search-suggestion"
+                            href={profileHref(suggestion.handle)}
+                            role="option"
+                            aria-selected="false"
+                            onClick={() => setSearchFocused(false)}
+                          >
+                            {suggestion.avatar ? (
+                              <img
+                                className="suggestion-avatar"
+                                src={suggestion.avatar}
+                                alt=""
+                                width="38"
+                                height="38"
+                              />
+                            ) : (
+                              <span
+                                className="suggestion-avatar avatar-fallback"
+                                aria-hidden="true"
+                              >
+                                {suggestion.handle.slice(0, 1).toUpperCase()}
+                              </span>
+                            )}
+                            <span className="suggestion-copy">
+                              <strong>
+                                {suggestion.displayName || suggestion.handle}
+                              </strong>
+                              <span>@{suggestion.handle}</span>
+                            </span>
+                          </a>
+                        ))}
+                        {suggesting && (
+                          <p className="suggestion-status">Finding accounts…</p>
+                        )}
+                      </div>
+                    )}
+                </form>
+
+                {!canSearch && (
+                  <div className="permission-note">
+                    <span>Search needs one additional read-only permission.</span>
+                    <button onClick={() => authorize(signedInHandle)} disabled={busy}>
+                      {busy ? 'Connecting…' : 'Enable search'}
+                    </button>
+                  </div>
+                )}
+
+                <section className="trending-card" aria-labelledby="trending-heading">
+                  <p className="eyebrow">Right now</p>
+                  <h2 id="trending-heading">Trending</h2>
+                  {trendsLoading ? (
+                    <div className="trends-loading" aria-live="polite">
+                      <div className="spinner spinner-small" />
+                      <span>Finding trends…</span>
+                    </div>
+                  ) : trendsError ? (
+                    <p className="trends-message">{trendsError}</p>
+                  ) : (
+                    <ol className="trend-list">
+                      {trends.map((trend) => (
+                        <li key={trend.link}>
+                          <button
+                            type="button"
+                            className="trend-button"
+                            onClick={() => void runSearch(trend.displayName)}
+                            disabled={!canSearch || searching}
+                          >
+                            <span className="trend-name">{trend.displayName}</span>
+                            <span className="trend-meta">
+                              {formatCount(trend.postCount)} posts
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                </section>
+              </div>
+            </aside>
+          </div>
         </section>
       )}
     </main>
