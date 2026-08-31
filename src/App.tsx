@@ -90,19 +90,24 @@ export default function App() {
   const oauthRef = useRef<BrowserOAuthClient | null>(null)
   const agentRef = useRef<Agent | null>(null)
   const didRef = useRef<string | null>(null)
+  const loadMoreRef = useRef<HTMLDivElement | null>(null)
+  const loadingRef = useRef(false)
   const [status, setStatus] = useState<'starting' | 'signed-out' | 'signed-in'>('starting')
   const [handle, setHandle] = useState('')
   const [signedInHandle, setSignedInHandle] = useState('')
   const [feed, setFeed] = useState<AppBskyFeedDefs.FeedViewPost[]>([])
   const [cursor, setCursor] = useState<string | undefined>()
   const [busy, setBusy] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState('')
 
   const loadFeed = useCallback(async (nextCursor?: string, append = false) => {
     const agent = agentRef.current
-    if (!agent) return
+    if (!agent || loadingRef.current) return
 
+    loadingRef.current = true
     setBusy(true)
+    setLoadingMore(append)
     setError('')
     try {
       const response = await agent.app.bsky.feed.getTimeline({
@@ -116,9 +121,28 @@ export default function App() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not load your feed.')
     } finally {
+      loadingRef.current = false
       setBusy(false)
+      setLoadingMore(false)
     }
   }, [])
+
+  useEffect(() => {
+    const sentinel = loadMoreRef.current
+    if (status !== 'signed-in' || !cursor || !sentinel) return
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting) return
+        observer.unobserve(sentinel)
+        void loadFeed(cursor, true)
+      },
+      { rootMargin: '600px 0px' },
+    )
+
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [cursor, loadFeed, status])
 
   useEffect(() => {
     let cancelled = false
@@ -263,19 +287,23 @@ export default function App() {
 
           {error && <p className="error feed-error">{error}</p>}
           <div className="feed" aria-live="polite">
-            {feed.map((item) => (
-              <FeedPost key={item.post.uri} item={item} />
+            {feed.map((item, index) => (
+              <FeedPost key={`${item.post.uri}-${index}`} item={item} />
             ))}
           </div>
 
           {cursor && (
-            <button
-              className="load-more"
-              onClick={() => loadFeed(cursor, true)}
-              disabled={busy}
-            >
-              {busy ? 'Loading…' : 'Load more'}
-            </button>
+            <div ref={loadMoreRef} className="feed-sentinel" aria-live="polite">
+              {loadingMore && (
+                <>
+                  <div className="spinner spinner-small" />
+                  <span>Loading more posts…</span>
+                </>
+              )}
+            </div>
+          )}
+          {!cursor && feed.length > 0 && !busy && (
+            <p className="feed-end">You’re all caught up.</p>
           )}
         </section>
       )}

@@ -280,9 +280,27 @@ h1 {
   text-decoration: underline;
 }
 
-.load-more {
-  display: block;
-  margin: 24px auto 0;
+.feed-sentinel {
+  min-height: 96px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #69726c;
+  font-size: 13px;
+}
+
+.spinner-small {
+  width: 18px;
+  height: 18px;
+  border-width: 2px;
+}
+
+.feed-end {
+  margin: 28px 0 0;
+  color: #69726c;
+  font-size: 13px;
+  text-align: center;
 }
 
 @media (max-width: 560px) {
