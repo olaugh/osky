@@ -263,7 +263,6 @@ export default function App() {
   const [canSearch, setCanSearch] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [submittedSearch, setSubmittedSearch] = useState('')
-  const [searchSort, setSearchSort] = useState<'top' | 'latest'>('top')
   const [searching, setSearching] = useState(false)
   const [accountResults, setAccountResults] = useState<AppBskyActorDefs.ProfileView[]>([])
   const [postResults, setPostResults] = useState<AppBskyFeedDefs.PostView[]>([])
@@ -447,7 +446,7 @@ export default function App() {
     try {
       const [accounts, posts] = await Promise.all([
         agent.app.bsky.actor.searchActors({ q: query, limit: 10 }),
-        agent.app.bsky.feed.searchPosts({ q: query, sort: searchSort, limit: 30 }),
+        agent.app.bsky.feed.searchPosts({ q: query, sort: 'top', limit: 30 }),
       ])
       setAccountResults(accounts.data.actors)
       setPostResults(posts.data.posts)
@@ -556,14 +555,6 @@ export default function App() {
                 autoCorrect="off"
               />
             </label>
-            <select
-              aria-label="Post result order"
-              value={searchSort}
-              onChange={(event) => setSearchSort(event.target.value as 'top' | 'latest')}
-            >
-              <option value="top">Top skeets</option>
-              <option value="latest">Latest skeets</option>
-            </select>
             <button type="submit" disabled={!canSearch || searching || !searchQuery.trim()}>
               {searching ? 'Searching…' : 'Search'}
             </button>

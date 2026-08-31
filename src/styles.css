@@ -196,7 +196,7 @@ h1 {
 
 .search-bar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
   margin-bottom: 40px;
   padding: 10px;
@@ -206,8 +206,7 @@ h1 {
   box-shadow: 0 12px 40px rgba(47, 57, 49, 0.06);
 }
 
-.search-input,
-.search-bar select {
+.search-input {
   min-width: 0;
   border: 1px solid transparent;
   border-radius: 10px;
@@ -241,14 +240,9 @@ h1 {
   background: transparent;
 }
 
-.search-input:focus-within,
-.search-bar select:focus {
+.search-input:focus-within {
   border-color: #2b6e4f;
   box-shadow: 0 0 0 3px rgba(43, 110, 79, 0.13);
-}
-
-.search-bar select {
-  padding: 12px 14px;
 }
 
 .search-bar button,
@@ -637,11 +631,6 @@ h1 {
 
   .search-bar {
     grid-template-columns: 1fr auto;
-  }
-
-  .search-bar select {
-    grid-column: 1 / -1;
-    grid-row: 2;
   }
 
   .permission-note {
