@@ -366,7 +366,7 @@ export default function App() {
             <input
               type="search"
               aria-label="Search accounts and skeets"
-              placeholder="Search accounts and skeets"
+              placeholder="🔍 Search"
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
               autoCapitalize="none"
@@ -437,10 +437,7 @@ export default function App() {
           ) : (
             <>
               <div className="feed-heading">
-                <div>
-                  <p className="eyebrow">Home</p>
-                  <h1>Your feed</h1>
-                </div>
+                <h1 className="following-title">FOLLOWING</h1>
                 <button
                   className="secondary-button"
                   onClick={() => loadFeed()}
