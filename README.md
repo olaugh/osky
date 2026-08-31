@@ -2,7 +2,7 @@
 
 A small, personal Bluesky client built on AT Protocol.
 
-The first version supports OAuth sign-in, an infinitely scrolling home feed, account and skeet search, refresh, and sign-out.
+The first version supports OAuth sign-in, an infinitely scrolling home feed, account and skeet search, internal profile pages, refresh, and sign-out.
 
 ## Run locally
 

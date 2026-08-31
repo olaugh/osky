@@ -17,6 +17,22 @@ const SCOPE = [
   `rpc:app.bsky.feed.getTimeline?aud=${APPVIEW_AUDIENCE}`,
   ...SEARCH_SCOPES,
 ].join(' ')
+const publicAgent = new Agent('https://public.api.bsky.app')
+
+function profileHref(actor: string) {
+  return `#/profile/${encodeURIComponent(actor)}`
+}
+
+function profileActorFromHash() {
+  const match = window.location.hash.match(/^#\/profile\/(.+)$/)
+  if (!match) return null
+
+  try {
+    return decodeURIComponent(match[1])
+  } catch {
+    return null
+  }
+}
 
 function clientId() {
   const isLocal = ['localhost', '127.0.0.1'].includes(window.location.hostname)
@@ -62,24 +78,30 @@ function PostCard({
         <p className="repost">Reposted by @{repost.handle}</p>
       )}
       <div className="post-grid">
-        {post.author.avatar ? (
-          <img
-            className="avatar"
-            src={post.author.avatar}
-            alt=""
-            width="48"
-            height="48"
-          />
-        ) : (
-          <div className="avatar avatar-fallback" aria-hidden="true">
-            {post.author.handle.slice(0, 1).toUpperCase()}
-          </div>
-        )}
+        <a
+          className="avatar-link"
+          href={profileHref(post.author.handle)}
+          aria-label={`View @${post.author.handle}'s profile`}
+        >
+          {post.author.avatar ? (
+            <img
+              className="avatar"
+              src={post.author.avatar}
+              alt=""
+              width="48"
+              height="48"
+            />
+          ) : (
+            <span className="avatar avatar-fallback" aria-hidden="true">
+              {post.author.handle.slice(0, 1).toUpperCase()}
+            </span>
+          )}
+        </a>
         <div className="post-body">
-          <div className="author-line">
+          <a className="author-line" href={profileHref(post.author.handle)}>
             <strong>{post.author.displayName || post.author.handle}</strong>
             <span>@{post.author.handle}</span>
-          </div>
+          </a>
           {record && typeof record.text === 'string' ? (
             <p className="post-text">{record.text}</p>
           ) : (
@@ -110,12 +132,7 @@ function FeedPost({ item }: { item: AppBskyFeedDefs.FeedViewPost }) {
 
 function AccountCard({ profile }: { profile: AppBskyActorDefs.ProfileView }) {
   return (
-    <a
-      className="account-card"
-      href={`https://bsky.app/profile/${profile.handle}`}
-      target="_blank"
-      rel="noreferrer"
-    >
+    <a className="account-card" href={profileHref(profile.handle)}>
       {profile.avatar ? (
         <img className="avatar" src={profile.avatar} alt="" width="48" height="48" />
       ) : (
@@ -129,6 +146,103 @@ function AccountCard({ profile }: { profile: AppBskyActorDefs.ProfileView }) {
         {profile.description && <small>{profile.description}</small>}
       </span>
     </a>
+  )
+}
+
+function ProfilePage({
+  profile,
+  feed,
+  loading,
+  error,
+}: {
+  profile: AppBskyActorDefs.ProfileViewDetailed | null
+  feed: AppBskyFeedDefs.FeedViewPost[]
+  loading: boolean
+  error: string
+}) {
+  if (loading) {
+    return (
+      <div className="profile-loading" aria-live="polite">
+        <div className="spinner" />
+        <span>Opening profile…</span>
+      </div>
+    )
+  }
+
+  if (error || !profile) {
+    return (
+      <div className="profile-message">
+        <p className="error">{error || 'Could not load this profile.'}</p>
+        <a className="secondary-button button-link" href="#">
+          Back
+        </a>
+      </div>
+    )
+  }
+
+  return (
+    <div className="profile-page">
+      <div className="profile-actions">
+        <a className="secondary-button button-link" href="#">
+          ← Back
+        </a>
+      </div>
+
+      <section className="profile-header">
+        {profile.banner ? (
+          <img className="profile-banner" src={profile.banner} alt="" />
+        ) : (
+          <div className="profile-banner profile-banner-fallback" />
+        )}
+        <div className="profile-summary">
+          {profile.avatar ? (
+            <img
+              className="profile-avatar"
+              src={profile.avatar}
+              alt=""
+              width="104"
+              height="104"
+            />
+          ) : (
+            <div className="profile-avatar profile-avatar-fallback" aria-hidden="true">
+              {profile.handle.slice(0, 1).toUpperCase()}
+            </div>
+          )}
+          <h1>{profile.displayName || profile.handle}</h1>
+          <p className="profile-handle">@{profile.handle}</p>
+          {profile.description && (
+            <p className="profile-description">{profile.description}</p>
+          )}
+          <dl className="profile-stats">
+            <div>
+              <dt>Posts</dt>
+              <dd>{profile.postsCount?.toLocaleString() ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>Following</dt>
+              <dd>{profile.followsCount?.toLocaleString() ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>Followers</dt>
+              <dd>{profile.followersCount?.toLocaleString() ?? '—'}</dd>
+            </div>
+          </dl>
+        </div>
+      </section>
+
+      <section className="profile-posts" aria-labelledby="profile-posts-heading">
+        <h2 id="profile-posts-heading">Skeets</h2>
+        {feed.length > 0 ? (
+          <div className="feed" aria-live="polite">
+            {feed.map((item, index) => (
+              <FeedPost key={`${item.post.uri}-${index}`} item={item} />
+            ))}
+          </div>
+        ) : (
+          <p className="empty-results">No recent skeets.</p>
+        )}
+      </section>
+    </div>
   )
 }
 
@@ -153,6 +267,11 @@ export default function App() {
   const [searching, setSearching] = useState(false)
   const [accountResults, setAccountResults] = useState<AppBskyActorDefs.ProfileView[]>([])
   const [postResults, setPostResults] = useState<AppBskyFeedDefs.PostView[]>([])
+  const [profileActor, setProfileActor] = useState<string | null>(profileActorFromHash)
+  const [profile, setProfile] = useState<AppBskyActorDefs.ProfileViewDetailed | null>(null)
+  const [profileFeed, setProfileFeed] = useState<AppBskyFeedDefs.FeedViewPost[]>([])
+  const [profileLoading, setProfileLoading] = useState(false)
+  const [profileError, setProfileError] = useState('')
 
   const loadFeed = useCallback(async (nextCursor?: string, append = false) => {
     const agent = agentRef.current
@@ -182,7 +301,13 @@ export default function App() {
 
   useEffect(() => {
     const sentinel = loadMoreRef.current
-    if (status !== 'signed-in' || submittedSearch || !cursor || !sentinel) return
+    if (
+      status !== 'signed-in' ||
+      submittedSearch ||
+      profileActor ||
+      !cursor ||
+      !sentinel
+    ) return
 
     const observer = new IntersectionObserver(
       ([entry]) => {
@@ -195,7 +320,55 @@ export default function App() {
 
     observer.observe(sentinel)
     return () => observer.disconnect()
-  }, [cursor, loadFeed, status, submittedSearch])
+  }, [cursor, loadFeed, profileActor, status, submittedSearch])
+
+  useEffect(() => {
+    const syncRoute = () => {
+      setProfileActor(profileActorFromHash())
+      window.scrollTo({ top: 0 })
+    }
+
+    window.addEventListener('hashchange', syncRoute)
+    return () => window.removeEventListener('hashchange', syncRoute)
+  }, [])
+
+  useEffect(() => {
+    if (!profileActor) return
+
+    let cancelled = false
+    setProfile(null)
+    setProfileFeed([])
+    setProfileError('')
+    setProfileLoading(true)
+
+    async function loadProfile() {
+      try {
+        const [profileResponse, feedResponse] = await Promise.all([
+          publicAgent.app.bsky.actor.getProfile({ actor: profileActor as string }),
+          publicAgent.app.bsky.feed.getAuthorFeed({
+            actor: profileActor as string,
+            limit: 30,
+          }),
+        ])
+        if (cancelled) return
+        setProfile(profileResponse.data)
+        setProfileFeed(feedResponse.data.feed)
+      } catch (cause) {
+        if (!cancelled) {
+          setProfileError(
+            cause instanceof Error ? cause.message : 'Could not load this profile.',
+          )
+        }
+      } finally {
+        if (!cancelled) setProfileLoading(false)
+      }
+    }
+
+    void loadProfile()
+    return () => {
+      cancelled = true
+    }
+  }, [profileActor])
 
   useEffect(() => {
     let cancelled = false
@@ -310,7 +483,7 @@ export default function App() {
   return (
     <main className="shell">
       <header className="masthead">
-        <a className="wordmark" href={import.meta.env.BASE_URL} aria-label="osky home">
+        <a className="wordmark" href="#" aria-label="osky home">
           <span className="mark">o</span>sky
         </a>
         {status === 'signed-in' && (
@@ -363,15 +536,26 @@ export default function App() {
       {status === 'signed-in' && (
         <section className="timeline">
           <form className="search-bar" onSubmit={search}>
-            <input
-              type="search"
-              aria-label="Search accounts and skeets"
-              placeholder="🔍 Search"
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              autoCapitalize="none"
-              autoCorrect="off"
-            />
+            <label className="search-input">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="m21 21-4.35-4.35m2.35-5.65a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeWidth="2.25"
+                />
+              </svg>
+              <input
+                type="search"
+                aria-label="Search accounts and skeets"
+                placeholder="Search"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                autoCapitalize="none"
+                autoCorrect="off"
+              />
+            </label>
             <select
               aria-label="Post result order"
               value={searchSort}
@@ -396,7 +580,14 @@ export default function App() {
 
           {error && <p className="error feed-error">{error}</p>}
 
-          {submittedSearch ? (
+          {profileActor ? (
+            <ProfilePage
+              profile={profile}
+              feed={profileFeed}
+              loading={profileLoading}
+              error={profileError}
+            />
+          ) : submittedSearch ? (
             <div className="search-results">
               <div className="feed-heading">
                 <div>
