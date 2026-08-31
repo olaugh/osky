@@ -190,13 +190,19 @@ function ProfilePage({
 
   return (
     <div className="profile-page">
-      <div className="profile-actions">
-        <a className="secondary-button button-link" href="#">
-          ← Back
-        </a>
-      </div>
-
       <section className="profile-header">
+        <a className="profile-back" href="#" aria-label="Back">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="m15 18-6-6 6-6M9 12h11"
+              fill="none"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2.25"
+            />
+          </svg>
+        </a>
         {profile.banner ? (
           <img className="profile-banner" src={profile.banner} alt="" />
         ) : (
@@ -555,20 +561,14 @@ export default function App() {
   }
 
   return (
-    <main className="shell">
-      <header className="masthead">
-        <a className="wordmark" href="#" aria-label="osky home">
-          <span className="mark">o</span>sky
-        </a>
-        {status === 'signed-in' && (
-          <div className="account">
-            <span>@{signedInHandle}</span>
-            <button className="text-button" onClick={signOut} disabled={busy}>
-              Sign out
-            </button>
-          </div>
-        )}
-      </header>
+    <main className={`shell ${status === 'signed-in' ? 'shell-signed-in' : ''}`}>
+      {status !== 'signed-in' && (
+        <header className="masthead">
+          <a className="wordmark" href="#" aria-label="osky home">
+            <span className="mark">o</span>sky
+          </a>
+        </header>
+      )}
 
       {status === 'starting' && (
         <section className="center-card" aria-live="polite">
@@ -608,7 +608,22 @@ export default function App() {
       )}
 
       {status === 'signed-in' && (
-        <section className="timeline">
+        <div className="signed-in-layout">
+          <aside className="left-sidebar" aria-label="osky navigation">
+            <div className="left-sidebar-sticky">
+              <a className="wordmark" href="#" aria-label="osky home">
+                <span className="mark">o</span>sky
+              </a>
+              <div className="left-account">
+                <span>@{signedInHandle}</span>
+                <button className="text-button" onClick={signOut} disabled={busy}>
+                  Sign out
+                </button>
+              </div>
+            </div>
+          </aside>
+
+          <section className="timeline">
           <div className="app-layout">
             <div className="primary-pane">
               {error && <p className="error feed-error">{error}</p>}
@@ -829,7 +844,8 @@ export default function App() {
               </div>
             </aside>
           </div>
-        </section>
+          </section>
+        </div>
       )}
     </main>
   )
