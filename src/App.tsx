@@ -1,9 +1,22 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react'
-import { Agent, AppBskyFeedDefs, AppBskyFeedPost } from '@atproto/api'
+import {
+  Agent,
+  AppBskyActorDefs,
+  AppBskyFeedDefs,
+  AppBskyFeedPost,
+} from '@atproto/api'
 import { BrowserOAuthClient } from '@atproto/oauth-client-browser'
 
-const SCOPE =
-  'atproto rpc:app.bsky.feed.getTimeline?aud=did:web:api.bsky.app#bsky_appview'
+const APPVIEW_AUDIENCE = 'did:web:api.bsky.app#bsky_appview'
+const SEARCH_SCOPES = [
+  `rpc:app.bsky.actor.searchActors?aud=${APPVIEW_AUDIENCE}`,
+  `rpc:app.bsky.feed.searchPosts?aud=${APPVIEW_AUDIENCE}`,
+]
+const SCOPE = [
+  'atproto',
+  `rpc:app.bsky.feed.getTimeline?aud=${APPVIEW_AUDIENCE}`,
+  ...SEARCH_SCOPES,
+].join(' ')
 
 function clientId() {
   const isLocal = ['localhost', '127.0.0.1'].includes(window.location.hostname)
@@ -34,13 +47,14 @@ function formatDate(value: string) {
   }).format(new Date(value))
 }
 
-function FeedPost({ item }: { item: AppBskyFeedDefs.FeedViewPost }) {
-  const record = AppBskyFeedPost.isRecord(item.post.record)
-    ? item.post.record
-    : null
-  const repost = AppBskyFeedDefs.isReasonRepost(item.reason)
-    ? item.reason.by
-    : null
+function PostCard({
+  post,
+  repost,
+}: {
+  post: AppBskyFeedDefs.PostView
+  repost?: AppBskyActorDefs.ProfileViewBasic
+}) {
+  const record = AppBskyFeedPost.isRecord(post.record) ? post.record : null
 
   return (
     <article className="post">
@@ -48,23 +62,23 @@ function FeedPost({ item }: { item: AppBskyFeedDefs.FeedViewPost }) {
         <p className="repost">Reposted by @{repost.handle}</p>
       )}
       <div className="post-grid">
-        {item.post.author.avatar ? (
+        {post.author.avatar ? (
           <img
             className="avatar"
-            src={item.post.author.avatar}
+            src={post.author.avatar}
             alt=""
             width="48"
             height="48"
           />
         ) : (
           <div className="avatar avatar-fallback" aria-hidden="true">
-            {item.post.author.handle.slice(0, 1).toUpperCase()}
+            {post.author.handle.slice(0, 1).toUpperCase()}
           </div>
         )}
         <div className="post-body">
           <div className="author-line">
-            <strong>{item.post.author.displayName || item.post.author.handle}</strong>
-            <span>@{item.post.author.handle}</span>
+            <strong>{post.author.displayName || post.author.handle}</strong>
+            <span>@{post.author.handle}</span>
           </div>
           {record && typeof record.text === 'string' ? (
             <p className="post-text">{record.text}</p>
@@ -73,16 +87,48 @@ function FeedPost({ item }: { item: AppBskyFeedDefs.FeedViewPost }) {
           )}
           <a
             className="post-meta"
-            href={postUrl(item.post)}
+            href={postUrl(post)}
             target="_blank"
             rel="noreferrer"
           >
-            {formatDate(item.post.indexedAt)} · {item.post.replyCount ?? 0} replies ·{' '}
-            {item.post.repostCount ?? 0} reposts · {item.post.likeCount ?? 0} likes
+            {formatDate(post.indexedAt)} · {post.replyCount ?? 0} replies ·{' '}
+            {post.repostCount ?? 0} reposts · {post.likeCount ?? 0} likes
           </a>
         </div>
       </div>
     </article>
+  )
+}
+
+function FeedPost({ item }: { item: AppBskyFeedDefs.FeedViewPost }) {
+  const repost = AppBskyFeedDefs.isReasonRepost(item.reason)
+    ? item.reason.by
+    : undefined
+
+  return <PostCard post={item.post} repost={repost} />
+}
+
+function AccountCard({ profile }: { profile: AppBskyActorDefs.ProfileView }) {
+  return (
+    <a
+      className="account-card"
+      href={`https://bsky.app/profile/${profile.handle}`}
+      target="_blank"
+      rel="noreferrer"
+    >
+      {profile.avatar ? (
+        <img className="avatar" src={profile.avatar} alt="" width="48" height="48" />
+      ) : (
+        <div className="avatar avatar-fallback" aria-hidden="true">
+          {profile.handle.slice(0, 1).toUpperCase()}
+        </div>
+      )}
+      <span className="account-card-body">
+        <strong>{profile.displayName || profile.handle}</strong>
+        <span>@{profile.handle}</span>
+        {profile.description && <small>{profile.description}</small>}
+      </span>
+    </a>
   )
 }
 
@@ -100,6 +146,13 @@ export default function App() {
   const [busy, setBusy] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState('')
+  const [canSearch, setCanSearch] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [submittedSearch, setSubmittedSearch] = useState('')
+  const [searchSort, setSearchSort] = useState<'top' | 'latest'>('top')
+  const [searching, setSearching] = useState(false)
+  const [accountResults, setAccountResults] = useState<AppBskyActorDefs.ProfileView[]>([])
+  const [postResults, setPostResults] = useState<AppBskyFeedDefs.PostView[]>([])
 
   const loadFeed = useCallback(async (nextCursor?: string, append = false) => {
     const agent = agentRef.current
@@ -129,7 +182,7 @@ export default function App() {
 
   useEffect(() => {
     const sentinel = loadMoreRef.current
-    if (status !== 'signed-in' || !cursor || !sentinel) return
+    if (status !== 'signed-in' || submittedSearch || !cursor || !sentinel) return
 
     const observer = new IntersectionObserver(
       ([entry]) => {
@@ -142,7 +195,7 @@ export default function App() {
 
     observer.observe(sentinel)
     return () => observer.disconnect()
-  }, [cursor, loadFeed, status])
+  }, [cursor, loadFeed, status, submittedSearch])
 
   useEffect(() => {
     let cancelled = false
@@ -166,6 +219,9 @@ export default function App() {
         const agent = new Agent(result.session)
         agentRef.current = agent
         didRef.current = result.session.did
+        const tokenInfo = await result.session.getTokenInfo()
+        const grantedScopes = new Set(tokenInfo.scope.split(' '))
+        setCanSearch(SEARCH_SCOPES.every((scope) => grantedScopes.has(scope)))
         const session = await agent.com.atproto.server.getSession()
         if (cancelled) return
 
@@ -186,20 +242,55 @@ export default function App() {
     }
   }, [loadFeed])
 
-  async function signIn(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!oauthRef.current || !handle.trim()) return
+  async function authorize(identifier: string) {
+    if (!oauthRef.current || !identifier.trim()) return
 
     setBusy(true)
     setError('')
     try {
-      await oauthRef.current.signIn(handle.trim(), {
+      await oauthRef.current.signIn(identifier.trim(), {
+        scope: SCOPE,
         state: crypto.randomUUID(),
       })
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Sign-in failed.')
       setBusy(false)
     }
+  }
+
+  function signIn(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    void authorize(handle)
+  }
+
+  async function search(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const query = searchQuery.trim()
+    const agent = agentRef.current
+    if (!agent || !canSearch || !query) return
+
+    setSearching(true)
+    setError('')
+    try {
+      const [accounts, posts] = await Promise.all([
+        agent.app.bsky.actor.searchActors({ q: query, limit: 10 }),
+        agent.app.bsky.feed.searchPosts({ q: query, sort: searchSort, limit: 30 }),
+      ])
+      setAccountResults(accounts.data.actors)
+      setPostResults(posts.data.posts)
+      setSubmittedSearch(query)
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Search failed.')
+    } finally {
+      setSearching(false)
+    }
+  }
+
+  function clearSearch() {
+    setSubmittedSearch('')
+    setAccountResults([])
+    setPostResults([])
   }
 
   async function signOut() {
@@ -271,39 +362,114 @@ export default function App() {
 
       {status === 'signed-in' && (
         <section className="timeline">
-          <div className="feed-heading">
-            <div>
-              <p className="eyebrow">Home</p>
-              <h1>Your feed</h1>
-            </div>
-            <button
-              className="secondary-button"
-              onClick={() => loadFeed()}
-              disabled={busy}
+          <form className="search-bar" onSubmit={search}>
+            <input
+              type="search"
+              aria-label="Search accounts and skeets"
+              placeholder="Search accounts and skeets"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              autoCapitalize="none"
+              autoCorrect="off"
+            />
+            <select
+              aria-label="Post result order"
+              value={searchSort}
+              onChange={(event) => setSearchSort(event.target.value as 'top' | 'latest')}
             >
-              Refresh
+              <option value="top">Top skeets</option>
+              <option value="latest">Latest skeets</option>
+            </select>
+            <button type="submit" disabled={!canSearch || searching || !searchQuery.trim()}>
+              {searching ? 'Searching…' : 'Search'}
             </button>
-          </div>
+          </form>
 
-          {error && <p className="error feed-error">{error}</p>}
-          <div className="feed" aria-live="polite">
-            {feed.map((item, index) => (
-              <FeedPost key={`${item.post.uri}-${index}`} item={item} />
-            ))}
-          </div>
-
-          {cursor && (
-            <div ref={loadMoreRef} className="feed-sentinel" aria-live="polite">
-              {loadingMore && (
-                <>
-                  <div className="spinner spinner-small" />
-                  <span>Loading more posts…</span>
-                </>
-              )}
+          {!canSearch && (
+            <div className="permission-note">
+              <span>Search needs one additional read-only permission.</span>
+              <button onClick={() => authorize(signedInHandle)} disabled={busy}>
+                {busy ? 'Connecting…' : 'Enable search'}
+              </button>
             </div>
           )}
-          {!cursor && feed.length > 0 && !busy && (
-            <p className="feed-end">You’re all caught up.</p>
+
+          {error && <p className="error feed-error">{error}</p>}
+
+          {submittedSearch ? (
+            <div className="search-results">
+              <div className="feed-heading">
+                <div>
+                  <p className="eyebrow">Search results</p>
+                  <h1>“{submittedSearch}”</h1>
+                </div>
+                <button className="secondary-button" onClick={clearSearch}>
+                  Back to feed
+                </button>
+              </div>
+
+              <section className="result-section" aria-labelledby="account-results-heading">
+                <h2 id="account-results-heading">Accounts</h2>
+                {accountResults.length > 0 ? (
+                  <div className="account-results">
+                    {accountResults.map((profile) => (
+                      <AccountCard key={profile.did} profile={profile} />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="empty-results">No matching accounts.</p>
+                )}
+              </section>
+
+              <section className="result-section" aria-labelledby="post-results-heading">
+                <h2 id="post-results-heading">Skeets</h2>
+                {postResults.length > 0 ? (
+                  <div className="feed" aria-live="polite">
+                    {postResults.map((post, index) => (
+                      <PostCard key={`${post.uri}-${index}`} post={post} />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="empty-results">No matching skeets.</p>
+                )}
+              </section>
+            </div>
+          ) : (
+            <>
+              <div className="feed-heading">
+                <div>
+                  <p className="eyebrow">Home</p>
+                  <h1>Your feed</h1>
+                </div>
+                <button
+                  className="secondary-button"
+                  onClick={() => loadFeed()}
+                  disabled={busy}
+                >
+                  Refresh
+                </button>
+              </div>
+
+              <div className="feed" aria-live="polite">
+                {feed.map((item, index) => (
+                  <FeedPost key={`${item.post.uri}-${index}`} item={item} />
+                ))}
+              </div>
+
+              {cursor && (
+                <div ref={loadMoreRef} className="feed-sentinel" aria-live="polite">
+                  {loadingMore && (
+                    <>
+                      <div className="spinner spinner-small" />
+                      <span>Loading more posts…</span>
+                    </>
+                  )}
+                </div>
+              )}
+              {!cursor && feed.length > 0 && !busy && (
+                <p className="feed-end">You’re all caught up.</p>
+              )}
+            </>
           )}
         </section>
       )}

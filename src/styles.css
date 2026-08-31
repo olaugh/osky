@@ -147,8 +147,7 @@ h1 {
 }
 
 .input-row button,
-.secondary-button,
-.load-more {
+.secondary-button {
   padding: 13px 20px;
   border: 1px solid #245d43;
   border-radius: 12px;
@@ -188,6 +187,58 @@ h1 {
   padding-top: 56px;
 }
 
+.search-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  margin-bottom: 40px;
+  padding: 10px;
+  border: 1px solid rgba(23, 34, 27, 0.14);
+  border-radius: 16px;
+  background: rgba(255, 253, 247, 0.78);
+  box-shadow: 0 12px 40px rgba(47, 57, 49, 0.06);
+}
+
+.search-bar input,
+.search-bar select {
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  outline: none;
+  color: #17221b;
+  background: #f7f4eb;
+}
+
+.search-bar input:focus,
+.search-bar select:focus {
+  border-color: #2b6e4f;
+  box-shadow: 0 0 0 3px rgba(43, 110, 79, 0.13);
+}
+
+.search-bar button,
+.permission-note button {
+  padding: 12px 18px;
+  border: 1px solid #245d43;
+  border-radius: 10px;
+  color: #fff;
+  background: #2b6e4f;
+  font-weight: 750;
+}
+
+.permission-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: -24px 0 36px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  color: #4f5d54;
+  background: #e4ecdf;
+  font-size: 14px;
+}
+
 .feed-heading {
   display: flex;
   align-items: end;
@@ -197,6 +248,87 @@ h1 {
 
 .feed-heading h1 {
   font-size: clamp(42px, 7vw, 58px);
+}
+
+.search-results .feed-heading h1 {
+  max-width: 540px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.result-section {
+  margin-top: 40px;
+}
+
+.result-section h2 {
+  margin: 0 0 16px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 28px;
+  font-weight: 500;
+  letter-spacing: -0.025em;
+}
+
+.account-results {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.account-card {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid rgba(23, 34, 27, 0.14);
+  border-radius: 16px;
+  color: inherit;
+  background: rgba(255, 253, 247, 0.78);
+  text-decoration: none;
+  transition: border-color 120ms ease, transform 120ms ease;
+}
+
+.account-card:hover {
+  border-color: rgba(43, 110, 79, 0.55);
+  transform: translateY(-1px);
+}
+
+.account-card-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.account-card-body > strong,
+.account-card-body > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-card-body > span {
+  color: #69726c;
+  font-size: 13px;
+}
+
+.account-card-body small {
+  display: -webkit-box;
+  margin-top: 8px;
+  overflow: hidden;
+  color: #4f5d54;
+  font-size: 12px;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.empty-results {
+  padding: 24px;
+  border: 1px dashed rgba(23, 34, 27, 0.2);
+  border-radius: 14px;
+  color: #69726c;
+  text-align: center;
 }
 
 .feed {
@@ -331,6 +463,29 @@ h1 {
 
   .timeline {
     padding-top: 38px;
+  }
+
+  .search-bar {
+    grid-template-columns: 1fr auto;
+  }
+
+  .search-bar select {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .permission-note {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .account-results {
+    grid-template-columns: 1fr;
+  }
+
+  .feed-heading {
+    align-items: flex-start;
+    gap: 18px;
   }
 
   .post {
