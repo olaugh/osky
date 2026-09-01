@@ -75,9 +75,9 @@ button:disabled {
 
 .signed-in-layout {
   display: grid;
-  grid-template-columns: 156px minmax(0, 1fr);
+  grid-template-columns: 120px minmax(0, 1fr);
   align-items: start;
-  gap: 32px;
+  gap: 16px;
   padding-top: 24px;
 }
 
@@ -254,9 +254,9 @@ h1 {
 
 .app-layout {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+  grid-template-columns: minmax(0, 1fr) 460px;
   align-items: start;
-  gap: 32px;
+  gap: 24px;
 }
 
 .primary-pane,
@@ -997,15 +997,15 @@ h1 {
   left: 50%;
   width: min(1380px, calc(100% - 40px));
   display: grid;
-  grid-template-columns: 156px minmax(0, 1fr);
-  gap: 32px;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 16px;
   pointer-events: none;
   transform: translateX(-50%);
 }
 
 .scroll-top-dock > .scroll-top-button {
   justify-self: end;
-  transform: translateX(24px);
+  transform: translateX(8px);
 }
 
 .scroll-top-dock .scroll-top-button {
@@ -1413,16 +1413,20 @@ h1 {
 @media (max-width: 1100px) {
   .signed-in-layout {
     grid-template-columns: 120px minmax(0, 1fr);
-    gap: 24px;
+    gap: 16px;
+  }
+
+  .app-layout {
+    grid-template-columns: minmax(0, 1fr) 340px;
   }
 
   .scroll-top-dock {
     grid-template-columns: 120px minmax(0, 1fr);
-    gap: 24px;
+    gap: 16px;
   }
 
   .scroll-top-dock > .scroll-top-button {
-    transform: translateX(16px);
+    transform: translateX(8px);
   }
 
 }
