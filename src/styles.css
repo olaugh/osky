@@ -846,10 +846,42 @@ h1 {
   height: 40px;
 }
 
-.right-scroll-top {
-  display: flex;
-  justify-content: flex-end;
-  margin: -4px 0 14px;
+.scroll-top-dock {
+  position: fixed;
+  z-index: 20;
+  bottom: 24px;
+  left: 50%;
+  width: min(1380px, calc(100% - 40px));
+  display: grid;
+  grid-template-columns: 156px minmax(0, 1fr);
+  gap: 32px;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.scroll-top-dock > .scroll-top-button {
+  justify-self: end;
+  transform: translateX(24px);
+}
+
+.scroll-top-dock-main {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+  gap: 32px;
+}
+
+.scroll-top-dock-main .scroll-top-button {
+  grid-column: 2;
+  justify-self: end;
+  transform: translateX(48px);
+}
+
+.scroll-top-dock .scroll-top-button {
+  pointer-events: auto;
+  border-color: rgba(43, 110, 79, 0.28);
+  background: rgba(255, 253, 247, 0.94);
+  box-shadow: 0 8px 24px rgba(23, 34, 27, 0.14);
+  backdrop-filter: blur(8px);
 }
 
 .thread-panel {
@@ -1093,6 +1125,20 @@ h1 {
     grid-template-columns: 120px minmax(0, 1fr);
     gap: 24px;
   }
+
+  .scroll-top-dock {
+    grid-template-columns: 120px minmax(0, 1fr);
+    gap: 24px;
+  }
+
+  .scroll-top-dock > .scroll-top-button {
+    transform: translateX(16px);
+  }
+
+  .scroll-top-dock-main {
+    gap: 24px;
+  }
+
 }
 
 @media (max-width: 900px) {
@@ -1120,6 +1166,15 @@ h1 {
 
   .sidebar-sticky {
     position: static;
+  }
+
+  .scroll-top-dock-main {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .scroll-top-dock-main .scroll-top-button {
+    transform: none;
   }
 }
 
@@ -1149,6 +1204,17 @@ h1 {
 
   .timeline {
     padding-top: 20px;
+  }
+
+  .scroll-top-dock {
+    width: calc(100% - 32px);
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .scroll-top-dock > .scroll-top-button {
+    transform: none;
   }
 }
 

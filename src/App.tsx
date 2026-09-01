@@ -1020,17 +1020,6 @@ export default function App() {
                   Sign out
                 </button>
               </div>
-              {showScrollTop && (
-                <button
-                  type="button"
-                  className="secondary-button icon-button scroll-top-button"
-                  onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-                  aria-label="Back to top"
-                  title="Back to top"
-                >
-                  <UpArrowIcon />
-                </button>
-              )}
             </div>
           </aside>
 
@@ -1233,20 +1222,6 @@ export default function App() {
                     )}
                 </form>
 
-                {showScrollTop && (
-                  <div className="right-scroll-top">
-                    <button
-                      type="button"
-                      className="secondary-button icon-button scroll-top-button"
-                      onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-                      aria-label="Back to top"
-                      title="Back to top"
-                    >
-                      <UpArrowIcon />
-                    </button>
-                  </div>
-                )}
-
                 {!canSearch && (
                   <div className="permission-note">
                     <span>Search needs one additional read-only permission.</span>
@@ -1300,6 +1275,30 @@ export default function App() {
             </aside>
           </div>
           </section>
+          {showScrollTop && (
+            <div className="scroll-top-dock" aria-label="Back to top controls">
+              <button
+                type="button"
+                className="secondary-button icon-button scroll-top-button"
+                onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+                aria-label="Back to top from left"
+                title="Back to top"
+              >
+                <UpArrowIcon />
+              </button>
+              <div className="scroll-top-dock-main">
+                <button
+                  type="button"
+                  className="secondary-button icon-button scroll-top-button"
+                  onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+                  aria-label="Back to top from right"
+                  title="Back to top"
+                >
+                  <UpArrowIcon />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </main>
