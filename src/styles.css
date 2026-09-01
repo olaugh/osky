@@ -970,6 +970,7 @@ h1 {
 }
 
 .scroll-top-dock-main {
+  grid-column: 2;
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
   gap: 32px;
@@ -1274,6 +1275,7 @@ h1 {
   }
 
   .scroll-top-dock-main {
+    margin-left: auto;
     display: flex;
     justify-content: flex-end;
   }

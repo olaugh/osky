@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useRef, useState } from 'react'
+import { FormEvent, RefObject, useCallback, useEffect, useRef, useState } from 'react'
 import {
   Agent,
   AppBskyActorDefs,
@@ -584,6 +584,8 @@ function ThreadPanel({
   error,
   onClose,
   onOpenThread,
+  panelRef,
+  onScrollStateChange,
 }: {
   selected: AppBskyFeedDefs.PostView
   thread: AppBskyFeedDefs.ThreadViewPost | null
@@ -591,11 +593,18 @@ function ThreadPanel({
   error: string
   onClose: () => void
   onOpenThread: (post: AppBskyFeedDefs.PostView) => void
+  panelRef: RefObject<HTMLElement | null>
+  onScrollStateChange: (scrolled: boolean) => void
 }) {
   const replies = thread ? flattenReplies(thread) : []
 
   return (
-    <section className="thread-panel" aria-labelledby="thread-panel-heading">
+    <section
+      ref={panelRef}
+      className="thread-panel"
+      aria-labelledby="thread-panel-heading"
+      onScroll={(event) => onScrollStateChange(event.currentTarget.scrollTop > 24)}
+    >
       <div className="thread-panel-heading">
         <div>
           <p className="eyebrow">Conversation</p>
@@ -760,6 +769,7 @@ export default function App() {
   const didRef = useRef<string | null>(null)
   const loadMoreRef = useRef<HTMLDivElement | null>(null)
   const loadingRef = useRef(false)
+  const threadPanelRef = useRef<HTMLElement | null>(null)
   const [status, setStatus] = useState<'starting' | 'signed-out' | 'signed-in'>('starting')
   const [handle, setHandle] = useState('')
   const [signedInHandle, setSignedInHandle] = useState('')
@@ -790,8 +800,11 @@ export default function App() {
   const [threadLoading, setThreadLoading] = useState(false)
   const [threadError, setThreadError] = useState('')
   const [showScrollTop, setShowScrollTop] = useState(false)
+  const [showThreadScrollTop, setShowThreadScrollTop] = useState(false)
 
   const openThread = useCallback(async (post: AppBskyFeedDefs.PostView) => {
+    threadPanelRef.current?.scrollTo({ top: 0 })
+    setShowThreadScrollTop(false)
     setSelectedThreadPost(post)
     setThread(null)
     setThreadError('')
@@ -816,6 +829,7 @@ export default function App() {
   }, [])
 
   const closeThread = useCallback(() => {
+    setShowThreadScrollTop(false)
     setSelectedThreadPost(null)
     setThread(null)
     setThreadError('')
@@ -1375,6 +1389,8 @@ export default function App() {
                     error={threadError}
                     onClose={closeThread}
                     onOpenThread={openThread}
+                    panelRef={threadPanelRef}
+                    onScrollStateChange={setShowThreadScrollTop}
                   />
                 ) : (
                 <section className="trending-card" aria-labelledby="trending-heading">
@@ -1412,27 +1428,31 @@ export default function App() {
             </aside>
           </div>
           </section>
-          {showScrollTop && (
+          {(showScrollTop || (selectedThreadPost && showThreadScrollTop)) && (
             <div className="scroll-top-dock" aria-label="Back to top controls">
-              <button
-                type="button"
-                className="secondary-button icon-button scroll-top-button"
-                onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-                aria-label="Back to top from left"
-                title="Back to top"
-              >
-                <UpArrowIcon />
-              </button>
-              <div className="scroll-top-dock-main">
+              {showScrollTop && (
                 <button
                   type="button"
                   className="secondary-button icon-button scroll-top-button"
                   onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-                  aria-label="Back to top from right"
-                  title="Back to top"
+                  aria-label="Back to top of feed"
+                  title="Back to top of feed"
                 >
                   <UpArrowIcon />
                 </button>
+              )}
+              <div className="scroll-top-dock-main">
+                {selectedThreadPost && showThreadScrollTop && (
+                  <button
+                    type="button"
+                    className="secondary-button icon-button scroll-top-button"
+                    onClick={() => threadPanelRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
+                    aria-label="Back to top of conversation"
+                    title="Back to top of conversation"
+                  >
+                    <UpArrowIcon />
+                  </button>
+                )}
               </div>
             </div>
           )}
