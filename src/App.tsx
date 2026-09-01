@@ -79,8 +79,12 @@ function settingsFromHash() {
   return window.location.hash === '#/settings'
 }
 
-function isDpopKeyBindingError(message: string) {
-  return message.toLowerCase().includes('invalid dpop key binding')
+function isRecoverableSessionError(message: string) {
+  const normalized = message.toLowerCase()
+  return (
+    normalized.includes('invalid dpop key binding') ||
+    normalized.includes('session was deleted by another process')
+  )
 }
 
 function clientId() {
@@ -1782,7 +1786,7 @@ export default function App() {
           <div className="app-layout">
             <div className="primary-pane">
               {error && (
-                isDpopKeyBindingError(error) ? (
+                isRecoverableSessionError(error) ? (
                   <div className="error feed-error auth-recovery" role="alert">
                     <span>Your Bluesky sign-in has expired or become disconnected.</span>
                     <button type="button" onClick={repairSignIn} disabled={busy}>
