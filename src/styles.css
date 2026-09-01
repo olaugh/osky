@@ -1218,14 +1218,6 @@ h1 {
   margin-top: 40px;
 }
 
-.profile-posts h2 {
-  margin: 0 0 16px;
-  font-size: 14px;
-  font-weight: 800;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-
 @media (max-width: 1100px) {
   .signed-in-layout {
     grid-template-columns: 120px minmax(0, 1fr);

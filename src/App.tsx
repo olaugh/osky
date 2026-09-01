@@ -743,8 +743,7 @@ function ProfilePage({
         </div>
       </section>
 
-      <section className="profile-posts" aria-labelledby="profile-posts-heading">
-        <h2 id="profile-posts-heading">Skeets</h2>
+      <section className="profile-posts" aria-label="Posts">
         {feed.length > 0 ? (
           <div className="feed" aria-live="polite">
             {feed.map((item, index) => (
