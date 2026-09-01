@@ -4,6 +4,7 @@ import {
   AppBskyActorDefs,
   AppBskyEmbedGallery,
   AppBskyEmbedImages,
+  AppBskyEmbedRecord,
   AppBskyEmbedRecordWithMedia,
   AppBskyEmbedVideo,
   AppBskyFeedDefs,
@@ -74,6 +75,16 @@ function formatCount(value: number) {
     notation: 'compact',
     maximumFractionDigits: 1,
   }).format(value)
+}
+
+function formatQuoteDate(value: string) {
+  const date = new Date(value)
+  const sameYear = date.getFullYear() === new Date().getFullYear()
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    ...(sameYear ? {} : { year: 'numeric' as const }),
+  }).format(date)
 }
 
 function UpArrowIcon() {
@@ -234,6 +245,129 @@ function PostMedia({ embed }: { embed: AppBskyFeedDefs.PostView['embed'] }) {
   return null
 }
 
+function quotedPostFromView(record: AppBskyEmbedRecord.ViewRecord) {
+  return {
+    uri: record.uri,
+    cid: record.cid,
+    author: record.author,
+    record: record.value,
+    embed: record.embeds?.[0] as AppBskyFeedDefs.PostView['embed'],
+    replyCount: record.replyCount,
+    repostCount: record.repostCount,
+    likeCount: record.likeCount,
+    quoteCount: record.quoteCount,
+    indexedAt: record.indexedAt,
+    labels: record.labels,
+  } satisfies AppBskyFeedDefs.PostView
+}
+
+function QuotePost({
+  embed,
+  onOpenThread,
+}: {
+  embed: AppBskyFeedDefs.PostView['embed']
+  onOpenThread?: (post: AppBskyFeedDefs.PostView) => void
+}) {
+  if (!embed) return null
+
+  const recordEmbed = AppBskyEmbedRecordWithMedia.isView(embed)
+    ? embed.record
+    : AppBskyEmbedRecord.isView(embed)
+      ? embed
+      : null
+  if (!recordEmbed) return null
+
+  const quoted = recordEmbed.record
+  if (AppBskyEmbedRecord.isViewBlocked(quoted)) {
+    return <div className="quote-card quote-unavailable">Post from a blocked account</div>
+  }
+  if (AppBskyEmbedRecord.isViewDetached(quoted)) {
+    return <div className="quote-card quote-unavailable">Quote removed by the original poster</div>
+  }
+  if (AppBskyEmbedRecord.isViewNotFound(quoted)) {
+    return <div className="quote-card quote-unavailable">Quoted post unavailable</div>
+  }
+  if (!AppBskyEmbedRecord.isViewRecord(quoted) || !AppBskyFeedPost.isRecord(quoted.value)) {
+    return null
+  }
+
+  const post = quotedPostFromView(quoted)
+  const record = quoted.value as AppBskyFeedPost.Record
+  const openQuote = () => {
+    if (onOpenThread) {
+      onOpenThread(post)
+    } else {
+      window.open(postUrl(post), '_blank', 'noopener,noreferrer')
+    }
+  }
+
+  return (
+    <div
+      className="quote-card quote-card-interactive"
+      role="link"
+      tabIndex={0}
+      aria-label={`Open quoted post by @${quoted.author.handle}`}
+      onClick={openQuote}
+      onKeyDown={(event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return
+        event.preventDefault()
+        openQuote()
+      }}
+    >
+      <div className="quote-author-line">
+        <a
+          href={profileHref(quoted.author.handle)}
+          onClick={(event) => event.stopPropagation()}
+          aria-label={`View @${quoted.author.handle}'s profile`}
+        >
+          {quoted.author.avatar ? (
+            <img className="quote-avatar" src={quoted.author.avatar} alt="" width="22" height="22" />
+          ) : (
+            <span className="quote-avatar quote-avatar-fallback" aria-hidden="true">
+              {quoted.author.handle.slice(0, 1).toUpperCase()}
+            </span>
+          )}
+        </a>
+        <a
+          className="quote-author"
+          href={profileHref(quoted.author.handle)}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <strong>{quoted.author.displayName || quoted.author.handle}</strong>
+          <span>@{quoted.author.handle}</span>
+        </a>
+        <span className="quote-separator" aria-hidden="true">·</span>
+        <time dateTime={quoted.indexedAt} title={formatDate(quoted.indexedAt)}>
+          {formatQuoteDate(quoted.indexedAt)}
+        </time>
+      </div>
+      {record.text && <p className="quote-text">{record.text}</p>}
+      {post.embed && (
+        <div className="quote-media" onClick={(event) => event.stopPropagation()}>
+          <PostMedia embed={post.embed} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function PostEmbed({
+  embed,
+  onOpenThread,
+}: {
+  embed: AppBskyFeedDefs.PostView['embed']
+  onOpenThread?: (post: AppBskyFeedDefs.PostView) => void
+}) {
+  if (!embed) return null
+
+  return (
+    <>
+      <PostMedia embed={embed} />
+      <QuotePost embed={embed} onOpenThread={onOpenThread} />
+    </>
+  )
+}
+
 const singleReplyCache = new Map<
   string,
   Promise<AppBskyFeedDefs.PostView | null>
@@ -306,7 +440,7 @@ function PostCard({
           ) : (
             <p className="post-text unavailable">Unsupported post format</p>
           )}
-          <PostMedia embed={post.embed} />
+          <PostEmbed embed={post.embed} onOpenThread={onOpenThread} />
           <div className="post-meta">
             <a href={postUrl(post)} target="_blank" rel="noreferrer">
               {formatDate(post.indexedAt)}
@@ -449,12 +583,14 @@ function ThreadPanel({
   loading,
   error,
   onClose,
+  onOpenThread,
 }: {
   selected: AppBskyFeedDefs.PostView
   thread: AppBskyFeedDefs.ThreadViewPost | null
   loading: boolean
   error: string
   onClose: () => void
+  onOpenThread: (post: AppBskyFeedDefs.PostView) => void
 }) {
   const replies = thread ? flattenReplies(thread) : []
 
@@ -476,10 +612,10 @@ function ThreadPanel({
         <p className="trends-message">{error}</p>
       ) : (
         <div className="thread-panel-posts">
-          <PostCard post={thread?.post ?? selected} nested />
+          <PostCard post={thread?.post ?? selected} nested onOpenThread={onOpenThread} />
           {replies.length > 0 ? (
             replies.map((reply) => (
-              <PostCard key={reply.uri} post={reply} nested />
+              <PostCard key={reply.uri} post={reply} nested onOpenThread={onOpenThread} />
             ))
           ) : (
             <p className="trends-message">No visible replies.</p>
@@ -1238,6 +1374,7 @@ export default function App() {
                     loading={threadLoading}
                     error={threadError}
                     onClose={closeThread}
+                    onOpenThread={openThread}
                   />
                 ) : (
                 <section className="trending-card" aria-labelledby="trending-heading">
