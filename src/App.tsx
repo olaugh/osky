@@ -32,9 +32,11 @@ const SCOPE = [
   ...SEARCH_SCOPES,
   ...GRAPH_SCOPES,
 ].join(' ')
+const THEME_STORAGE_KEY = 'osky-theme'
 const publicAgent = new Agent('https://public.api.bsky.app')
 
 type ProfileFeedMode = 'posts' | 'replies' | 'both'
+type ThemePreference = 'light' | 'dark' | 'system'
 type EngagementKind = 'reposts' | 'likes'
 type OpenEngagement = (kind: EngagementKind, post: AppBskyFeedDefs.PostView) => void
 type BulkBlockResult = {
@@ -43,6 +45,25 @@ type BulkBlockResult = {
 }
 
 const EngagementContext = createContext<OpenEngagement | null>(null)
+
+function storedThemePreference(): ThemePreference {
+  const stored = window.localStorage.getItem(THEME_STORAGE_KEY)
+  return stored === 'light' || stored === 'dark' ? stored : 'system'
+}
+
+function applyTheme(preference: ThemePreference) {
+  const resolved = preference === 'system'
+    ? window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+    : preference
+  document.documentElement.dataset.theme = resolved
+  document.documentElement.style.colorScheme = resolved
+  document.querySelector('meta[name="theme-color"]')?.setAttribute(
+    'content',
+    resolved === 'dark' ? '#111713' : '#f3efe5',
+  )
+}
+
+applyTheme(storedThemePreference())
 
 async function getRelationships(actor: string, others: string[]) {
   const relationships = new Map<string, AppBskyGraphDefs.Relationship>()
@@ -977,7 +998,15 @@ function EngagementPanel({
   )
 }
 
-function SettingsPage({ signedInHandle }: { signedInHandle: string }) {
+function SettingsPage({
+  signedInHandle,
+  theme,
+  onThemeChange,
+}: {
+  signedInHandle: string
+  theme: ThemePreference
+  onThemeChange: (theme: ThemePreference) => void
+}) {
   return (
     <div className="settings-page">
       <div className="settings-heading">
@@ -987,6 +1016,23 @@ function SettingsPage({ signedInHandle }: { signedInHandle: string }) {
       <section className="settings-card">
         <h2>Account</h2>
         <p>Signed in as <strong>@{signedInHandle}</strong></p>
+      </section>
+      <section className="settings-card">
+        <h2>Appearance</h2>
+        <p>Choose a theme, or follow your system setting.</p>
+        <div className="theme-options" aria-label="Theme">
+          {(['light', 'dark', 'system'] as const).map((option) => (
+            <button
+              key={option}
+              type="button"
+              className={`theme-option${theme === option ? ' theme-option-active' : ''}`}
+              aria-pressed={theme === option}
+              onClick={() => onThemeChange(option)}
+            >
+              {option[0].toUpperCase() + option.slice(1)}
+            </button>
+          ))}
+        </div>
       </section>
       <section className="settings-card">
         <h2>AI &amp; moderation</h2>
@@ -1191,6 +1237,18 @@ export default function App() {
   const [engagementLoading, setEngagementLoading] = useState(false)
   const [engagementError, setEngagementError] = useState('')
   const [showScrollTop, setShowScrollTop] = useState(false)
+  const [theme, setTheme] = useState<ThemePreference>(storedThemePreference)
+
+  useEffect(() => {
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme)
+    applyTheme(theme)
+
+    if (theme !== 'system') return
+    const systemTheme = window.matchMedia('(prefers-color-scheme: dark)')
+    const syncSystemTheme = () => applyTheme('system')
+    systemTheme.addEventListener('change', syncSystemTheme)
+    return () => systemTheme.removeEventListener('change', syncSystemTheme)
+  }, [theme])
 
   const openEngagement = useCallback(async (
     kind: EngagementKind,
@@ -1799,7 +1857,11 @@ export default function App() {
               )}
 
           {settingsOpen ? (
-            <SettingsPage signedInHandle={signedInHandle} />
+            <SettingsPage
+              signedInHandle={signedInHandle}
+              theme={theme}
+              onThemeChange={setTheme}
+            />
           ) : profileActor ? (
             <ProfilePage
               profile={profile}
