@@ -678,11 +678,22 @@ export default function App() {
               <div className="feed-heading">
                 <h1 className="following-title">FOLLOWING</h1>
                 <button
-                  className="secondary-button"
+                  className="secondary-button icon-button"
                   onClick={() => loadFeed()}
                   disabled={busy}
+                  aria-label="Refresh feed"
+                  title="Refresh feed"
                 >
-                  Refresh
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M20 11a8 8 0 0 0-14.9-3M4 4v5h5m-5 4a8 8 0 0 0 14.9 3M20 20v-5h-5"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2.1"
+                    />
+                  </svg>
                 </button>
               </div>
 
