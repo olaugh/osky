@@ -1535,6 +1535,32 @@ export default function App() {
               <a className="wordmark" href="#" aria-label="osky home" onClick={goHome}>
                 <span className="mark">o</span>sky
               </a>
+              <div className="account-menu">
+                <button
+                  type="button"
+                  className="account-menu-trigger"
+                  aria-haspopup="menu"
+                  aria-label={`Account menu for @${signedInHandle}`}
+                >
+                  @{signedInHandle}
+                </button>
+                <div className="account-context-menu" role="menu">
+                  <a
+                    href={profileHref(signedInHandle)}
+                    role="menuitem"
+                    onClick={() => {
+                      clearSearch()
+                      closeThread()
+                      closeEngagement()
+                    }}
+                  >
+                    Profile
+                  </a>
+                  <button type="button" role="menuitem" onClick={signOut} disabled={busy}>
+                    Sign out
+                  </button>
+                </div>
+              </div>
               <nav className="left-nav" aria-label="Primary navigation">
                 <a
                   className={`left-nav-link${!settingsOpen && !profileActor && !submittedSearch ? ' left-nav-link-active' : ''}`}
@@ -1559,12 +1585,6 @@ export default function App() {
                   <span>Settings</span>
                 </a>
               </nav>
-              <div className="left-account">
-                <span>@{signedInHandle}</span>
-                <button className="text-button" onClick={signOut} disabled={busy}>
-                  Sign out
-                </button>
-              </div>
             </div>
           </aside>
 

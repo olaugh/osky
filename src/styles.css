@@ -92,31 +92,80 @@ button:disabled {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 30px;
+  gap: 22px;
 }
 
-.left-account {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 9px;
-  color: #5a635d;
-  font-size: 12px;
+.account-menu {
+  position: relative;
+  width: 100%;
 }
 
-.left-account > span {
+.account-menu-trigger {
   max-width: 100%;
+  padding: 0;
   overflow: hidden;
+  border: 0;
+  color: #5a635d;
+  background: transparent;
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: left;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.text-button {
-  padding: 0;
-  border: 0;
-  border-bottom: 1px solid currentColor;
+.account-menu-trigger:hover,
+.account-menu-trigger:focus-visible {
   color: #2b6e4f;
+  text-decoration: underline;
+}
+
+.account-context-menu {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 1px);
+  left: -8px;
+  min-width: 138px;
+  display: grid;
+  padding: 6px;
+  visibility: hidden;
+  border: 1px solid rgba(23, 34, 27, 0.16);
+  border-radius: 10px;
+  opacity: 0;
+  background: rgba(255, 253, 247, 0.98);
+  box-shadow: 0 10px 28px rgba(23, 34, 27, 0.14);
+  transform: translateY(-3px);
+  transition: opacity 100ms ease, transform 100ms ease, visibility 100ms ease;
+  pointer-events: none;
+}
+
+.account-menu:hover .account-context-menu,
+.account-menu:focus-within .account-context-menu {
+  visibility: visible;
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.account-context-menu a,
+.account-context-menu button {
+  width: 100%;
+  padding: 8px 9px;
+  border: 0;
+  border-radius: 7px;
+  color: #27342c;
   background: transparent;
+  font-size: 12px;
+  text-align: left;
+  text-decoration: none;
+}
+
+.account-context-menu a:hover,
+.account-context-menu a:focus-visible,
+.account-context-menu button:hover,
+.account-context-menu button:focus-visible {
+  color: #2b6e4f;
+  background: rgba(228, 236, 223, 0.72);
 }
 
 .login-card,
@@ -1590,10 +1639,8 @@ h1 {
     display: flex;
   }
 
-  .left-account {
-    flex-direction: row;
-    align-items: center;
-    gap: 14px;
+  .account-menu {
+    width: auto;
   }
 
   .timeline {
