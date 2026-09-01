@@ -2,11 +2,16 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import {
   Agent,
   AppBskyActorDefs,
+  AppBskyEmbedGallery,
+  AppBskyEmbedImages,
+  AppBskyEmbedRecordWithMedia,
+  AppBskyEmbedVideo,
   AppBskyFeedDefs,
   AppBskyFeedPost,
   AppBskyUnspeccedDefs,
 } from '@atproto/api'
 import { BrowserOAuthClient } from '@atproto/oauth-client-browser'
+import type HlsPlayer from 'hls.js'
 
 const APPVIEW_AUDIENCE = 'did:web:api.bsky.app#bsky_appview'
 const SEARCH_SCOPES = [
@@ -71,6 +76,149 @@ function formatCount(value: number) {
   }).format(value)
 }
 
+type MediaImage = {
+  thumb: string
+  fullsize: string
+  alt: string
+  aspectRatio?: { width: number; height: number }
+}
+
+function ImageGallery({ images }: { images: MediaImage[] }) {
+  if (images.length === 0) return null
+
+  return (
+    <div className={`media-grid media-count-${Math.min(images.length, 5)}`}>
+      {images.map((image, index) => (
+        <a
+          key={`${image.fullsize}-${index}`}
+          className="media-item"
+          href={image.fullsize}
+          target="_blank"
+          rel="noreferrer"
+          aria-label={image.alt ? `Open image: ${image.alt}` : 'Open image'}
+          style={
+            images.length === 1 && image.aspectRatio
+              ? { aspectRatio: `${image.aspectRatio.width} / ${image.aspectRatio.height}` }
+              : undefined
+          }
+        >
+          <img
+            className="media-image"
+            src={image.thumb}
+            alt={image.alt}
+            loading="lazy"
+          />
+        </a>
+      ))}
+    </div>
+  )
+}
+
+function VideoEmbed({ video }: { video: AppBskyEmbedVideo.View }) {
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const [shouldLoad, setShouldLoad] = useState(false)
+
+  useEffect(() => {
+    const element = videoRef.current
+    if (!element) return
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting) return
+        setShouldLoad(true)
+        observer.disconnect()
+      },
+      { rootMargin: '400px 0px' },
+    )
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => {
+    const element = videoRef.current
+    if (!element || !shouldLoad) return
+
+    const mediaElement = element
+    let cancelled = false
+    let hls: HlsPlayer | null = null
+
+    async function attachStream() {
+      const { default: Hls } = await import('hls.js')
+      if (cancelled) return
+
+      if (Hls.isSupported()) {
+        hls = new Hls({ enableWorker: true })
+        hls.loadSource(video.playlist)
+        hls.attachMedia(mediaElement)
+      } else {
+        mediaElement.src = video.playlist
+      }
+    }
+
+    void attachStream()
+    return () => {
+      cancelled = true
+      hls?.destroy()
+    }
+  }, [shouldLoad, video.playlist])
+
+  return (
+    <div
+      className="video-embed"
+      style={
+        video.aspectRatio
+          ? { aspectRatio: `${video.aspectRatio.width} / ${video.aspectRatio.height}` }
+          : undefined
+      }
+    >
+      <video
+        ref={videoRef}
+        controls
+        playsInline
+        preload="metadata"
+        poster={video.thumbnail}
+        aria-label={video.alt || 'Embedded video'}
+      />
+      {video.alt && <span className="alt-badge" title={video.alt}>ALT</span>}
+    </div>
+  )
+}
+
+function PostMedia({ embed }: { embed: AppBskyFeedDefs.PostView['embed'] }) {
+  if (!embed) return null
+
+  const media: unknown = AppBskyEmbedRecordWithMedia.isView(embed)
+    ? embed.media
+    : embed
+
+  if (AppBskyEmbedImages.isView(media)) {
+    const imageView = media as AppBskyEmbedImages.View
+    return <ImageGallery images={imageView.images} />
+  }
+
+  if (AppBskyEmbedGallery.isView(media)) {
+    const galleryView = media as AppBskyEmbedGallery.View
+    const images: MediaImage[] = []
+    for (const item of galleryView.items) {
+      if (!AppBskyEmbedGallery.isViewImage(item)) continue
+      const image = item as AppBskyEmbedGallery.ViewImage
+      images.push({
+        thumb: image.thumbnail,
+        fullsize: image.fullsize,
+        alt: image.alt,
+        aspectRatio: image.aspectRatio,
+      })
+    }
+    return <ImageGallery images={images} />
+  }
+
+  if (AppBskyEmbedVideo.isView(media)) {
+    return <VideoEmbed video={media as AppBskyEmbedVideo.View} />
+  }
+
+  return null
+}
+
 function PostCard({
   post,
   repost,
@@ -115,6 +263,7 @@ function PostCard({
           ) : (
             <p className="post-text unavailable">Unsupported post format</p>
           )}
+          <PostMedia embed={post.embed} />
           <a
             className="post-meta"
             href={postUrl(post)}
