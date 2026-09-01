@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useRef, useState } from 'react'
+import { FormEvent, createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import {
   Agent,
   AppBskyActorDefs,
@@ -27,6 +27,10 @@ const SCOPE = [
 const publicAgent = new Agent('https://public.api.bsky.app')
 
 type ProfileFeedMode = 'posts' | 'replies' | 'both'
+type EngagementKind = 'reposts' | 'likes'
+type OpenEngagement = (kind: EngagementKind, post: AppBskyFeedDefs.PostView) => void
+
+const EngagementContext = createContext<OpenEngagement | null>(null)
 
 function profileHref(actor: string) {
   return `#/profile/${encodeURIComponent(actor)}`
@@ -406,6 +410,8 @@ function PostCard({
   onOpenThread?: (post: AppBskyFeedDefs.PostView) => void
 }) {
   const record = AppBskyFeedPost.isRecord(post.record) ? post.record : null
+  const openEngagement = useContext(EngagementContext)
+  const repostCount = (post.repostCount ?? 0) + (post.quoteCount ?? 0)
 
   return (
     <article className={`post${nested ? ' nested-post' : ''}`}>
@@ -456,9 +462,21 @@ function PostCard({
               <span>{post.replyCount ?? 0} replies</span>
             )}
             <span aria-hidden="true">·</span>
-            <span>{post.repostCount ?? 0} reposts</span>
+            {openEngagement && repostCount > 0 ? (
+              <button type="button" onClick={() => openEngagement('reposts', post)}>
+                {repostCount} reposts
+              </button>
+            ) : (
+              <span>{repostCount} reposts</span>
+            )}
             <span aria-hidden="true">·</span>
-            <span>{post.likeCount ?? 0} likes</span>
+            {openEngagement && (post.likeCount ?? 0) > 0 ? (
+              <button type="button" onClick={() => openEngagement('likes', post)}>
+                {post.likeCount ?? 0} likes
+              </button>
+            ) : (
+              <span>{post.likeCount ?? 0} likes</span>
+            )}
           </div>
         </div>
       </div>
@@ -716,6 +734,103 @@ function AccountCard({ profile }: { profile: AppBskyActorDefs.ProfileView }) {
   )
 }
 
+function EngagementActorRow({ profile }: { profile: AppBskyActorDefs.ProfileView }) {
+  return (
+    <a className="engagement-actor" href={profileHref(profile.handle)}>
+      {profile.avatar ? (
+        <img className="engagement-avatar" src={profile.avatar} alt="" width="38" height="38" />
+      ) : (
+        <span className="engagement-avatar avatar-fallback" aria-hidden="true">
+          {profile.handle.slice(0, 1).toUpperCase()}
+        </span>
+      )}
+      <span className="engagement-actor-copy">
+        <strong>{profile.displayName || profile.handle}</strong>
+        <span>@{profile.handle}</span>
+      </span>
+    </a>
+  )
+}
+
+function EngagementPanel({
+  kind,
+  post,
+  actors,
+  quotes,
+  loading,
+  error,
+  onClose,
+  onOpenThread,
+}: {
+  kind: EngagementKind
+  post: AppBskyFeedDefs.PostView
+  actors: AppBskyActorDefs.ProfileView[]
+  quotes: AppBskyFeedDefs.PostView[]
+  loading: boolean
+  error: string
+  onClose: () => void
+  onOpenThread: (post: AppBskyFeedDefs.PostView) => void
+}) {
+  const record = AppBskyFeedPost.isRecord(post.record) ? post.record : null
+  const title = kind === 'likes' ? 'Likes' : 'Reposts'
+
+  return (
+    <section className="thread-panel engagement-panel" aria-label={title}>
+      <button
+        type="button"
+        className="thread-panel-close"
+        onClick={onClose}
+        aria-label={`Close ${title.toLowerCase()}`}
+      >
+        ×
+      </button>
+      <div className="engagement-source">
+        <strong>{post.author.displayName || post.author.handle}</strong>
+        {record && typeof record.text === 'string' && record.text && <p>{record.text}</p>}
+      </div>
+      <div className="engagement-summary">
+        <strong>{title}</strong>
+        {!loading && !error && (
+          <span>
+            {kind === 'likes'
+              ? `${actors.length} ${actors.length === 1 ? 'account' : 'accounts'}`
+              : `${actors.length} repost${actors.length === 1 ? '' : 's'} · ${quotes.length} quote${quotes.length === 1 ? '' : 's'}`}
+          </span>
+        )}
+      </div>
+      {loading ? (
+        <div className="trends-loading" aria-live="polite">
+          <div className="spinner spinner-small" />
+          <span>Loading {title.toLowerCase()}…</span>
+        </div>
+      ) : error ? (
+        <p className="trends-message">{error}</p>
+      ) : (
+        <>
+          {actors.length > 0 && (
+            <div className="engagement-actor-list">
+              {actors.map((actor) => (
+                <EngagementActorRow key={actor.did} profile={actor} />
+              ))}
+            </div>
+          )}
+          {kind === 'reposts' && quotes.length > 0 && (
+            <div className="engagement-quotes">
+              <p className="engagement-section-label">Quote posts</p>
+              {quotes.map((quote) => (
+                <PostCard key={quote.uri} post={quote} nested onOpenThread={onOpenThread} />
+              ))}
+            </div>
+          )}
+          {actors.length === 0 && quotes.length === 0 && (
+            <p className="trends-message">No visible {title.toLowerCase()}.</p>
+          )}
+        </>
+      )}
+    </section>
+  )
+}
+
 function ProfilePage({
   profile,
   feed,
@@ -859,6 +974,7 @@ export default function App() {
   const didRef = useRef<string | null>(null)
   const loadMoreRef = useRef<HTMLDivElement | null>(null)
   const loadingRef = useRef(false)
+  const engagementRequestRef = useRef(0)
   const [status, setStatus] = useState<'starting' | 'signed-out' | 'signed-in'>('starting')
   const [handle, setHandle] = useState('')
   const [signedInHandle, setSignedInHandle] = useState('')
@@ -891,9 +1007,62 @@ export default function App() {
   const [thread, setThread] = useState<AppBskyFeedDefs.ThreadViewPost | null>(null)
   const [threadLoading, setThreadLoading] = useState(false)
   const [threadError, setThreadError] = useState('')
+  const [engagementPanel, setEngagementPanel] = useState<{
+    kind: EngagementKind
+    post: AppBskyFeedDefs.PostView
+  } | null>(null)
+  const [engagementActors, setEngagementActors] = useState<AppBskyActorDefs.ProfileView[]>([])
+  const [engagementQuotes, setEngagementQuotes] = useState<AppBskyFeedDefs.PostView[]>([])
+  const [engagementLoading, setEngagementLoading] = useState(false)
+  const [engagementError, setEngagementError] = useState('')
   const [showScrollTop, setShowScrollTop] = useState(false)
 
+  const openEngagement = useCallback(async (
+    kind: EngagementKind,
+    post: AppBskyFeedDefs.PostView,
+  ) => {
+    const requestId = ++engagementRequestRef.current
+    setSelectedThreadPost(null)
+    setThread(null)
+    setThreadError('')
+    setEngagementPanel({ kind, post })
+    setEngagementActors([])
+    setEngagementQuotes([])
+    setEngagementError('')
+    setEngagementLoading(true)
+
+    try {
+      if (kind === 'likes') {
+        const response = await publicAgent.app.bsky.feed.getLikes({
+          uri: post.uri,
+          cid: post.cid,
+          limit: 100,
+        })
+        if (requestId === engagementRequestRef.current) {
+          setEngagementActors(response.data.likes.map((like) => like.actor))
+        }
+      } else {
+        const [repostsResponse, quotesResponse] = await Promise.all([
+          publicAgent.app.bsky.feed.getRepostedBy({ uri: post.uri, cid: post.cid, limit: 100 }),
+          publicAgent.app.bsky.feed.getQuotes({ uri: post.uri, cid: post.cid, limit: 100 }),
+        ])
+        if (requestId === engagementRequestRef.current) {
+          setEngagementActors(repostsResponse.data.repostedBy)
+          setEngagementQuotes(quotesResponse.data.posts)
+        }
+      }
+    } catch (cause) {
+      if (requestId === engagementRequestRef.current) {
+        setEngagementError(cause instanceof Error ? cause.message : `Could not load ${kind}.`)
+      }
+    } finally {
+      if (requestId === engagementRequestRef.current) setEngagementLoading(false)
+    }
+  }, [])
+
   const openThread = useCallback(async (post: AppBskyFeedDefs.PostView) => {
+    engagementRequestRef.current += 1
+    setEngagementPanel(null)
     setSelectedThreadPost(post)
     setThread(null)
     setThreadError('')
@@ -921,6 +1090,14 @@ export default function App() {
     setSelectedThreadPost(null)
     setThread(null)
     setThreadError('')
+  }, [])
+
+  const closeEngagement = useCallback(() => {
+    engagementRequestRef.current += 1
+    setEngagementPanel(null)
+    setEngagementActors([])
+    setEngagementQuotes([])
+    setEngagementError('')
   }, [])
 
   const loadFeed = useCallback(async (nextCursor?: string, append = false) => {
@@ -1279,6 +1456,7 @@ export default function App() {
       )}
 
       {status === 'signed-in' && (
+        <EngagementContext.Provider value={openEngagement}>
         <div className="signed-in-layout">
           <aside className="left-sidebar" aria-label="osky navigation">
             <div className="left-sidebar-sticky">
@@ -1506,7 +1684,19 @@ export default function App() {
                   </div>
                 )}
 
-                {selectedThreadPost ? (
+                {engagementPanel ? (
+                  <EngagementPanel
+                    key={`${engagementPanel.kind}-${engagementPanel.post.uri}`}
+                    kind={engagementPanel.kind}
+                    post={engagementPanel.post}
+                    actors={engagementActors}
+                    quotes={engagementQuotes}
+                    loading={engagementLoading}
+                    error={engagementError}
+                    onClose={closeEngagement}
+                    onOpenThread={openThread}
+                  />
+                ) : selectedThreadPost ? (
                   <ThreadPanel
                     key={selectedThreadPost.uri}
                     selected={selectedThreadPost}
@@ -1566,6 +1756,7 @@ export default function App() {
             </div>
           )}
         </div>
+        </EngagementContext.Provider>
       )}
     </main>
   )
