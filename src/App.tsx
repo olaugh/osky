@@ -1267,13 +1267,15 @@ export default function App() {
         const response = await publicAgent.app.bsky.feed.getAuthorFeed({
           actor: profileActor as string,
           filter: profileFeedMode === 'posts' ? 'posts_no_replies' : 'posts_with_replies',
-          limit: profileFeedMode === 'replies' ? 100 : 30,
+          limit: profileFeedMode === 'both' ? 30 : 100,
         })
         if (cancelled) return
 
-        const nextFeed = profileFeedMode === 'replies'
-          ? response.data.feed.filter(isAuthoredReply).slice(0, 30)
-          : response.data.feed
+        const nextFeed = profileFeedMode === 'posts'
+          ? response.data.feed.filter((item) => !isAuthoredReply(item)).slice(0, 30)
+          : profileFeedMode === 'replies'
+            ? response.data.feed.filter(isAuthoredReply).slice(0, 30)
+            : response.data.feed
         setProfileFeed(nextFeed)
       } catch (cause) {
         if (!cancelled) {
