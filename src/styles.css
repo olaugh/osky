@@ -971,7 +971,6 @@ h1 {
   line-height: 1.5;
 }
 
-.post-meta a,
 .post-meta button {
   padding: 0;
   border: 0;
@@ -981,7 +980,6 @@ h1 {
   text-decoration: none;
 }
 
-.post-meta a:hover,
 .post-meta button:hover {
   color: #2b6e4f;
   text-decoration: underline;

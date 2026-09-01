@@ -444,9 +444,9 @@ function PostCard({
           )}
           <PostEmbed embed={post.embed} onOpenThread={onOpenThread} />
           <div className="post-meta">
-            <a href={postUrl(post)} target="_blank" rel="noreferrer">
+            <time dateTime={post.indexedAt}>
               {formatDate(post.indexedAt)}
-            </a>
+            </time>
             <span aria-hidden="true">·</span>
             {onOpenThread && (post.replyCount ?? 0) > 0 ? (
               <button type="button" onClick={() => onOpenThread(post)}>
