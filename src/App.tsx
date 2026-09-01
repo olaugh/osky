@@ -9,6 +9,7 @@ import {
   AppBskyEmbedVideo,
   AppBskyFeedDefs,
   AppBskyFeedPost,
+  AppBskyGraphDefs,
   AppBskyUnspeccedDefs,
 } from '@atproto/api'
 import { BrowserOAuthClient } from '@atproto/oauth-client-browser'
@@ -29,8 +30,28 @@ const publicAgent = new Agent('https://public.api.bsky.app')
 type ProfileFeedMode = 'posts' | 'replies' | 'both'
 type EngagementKind = 'reposts' | 'likes'
 type OpenEngagement = (kind: EngagementKind, post: AppBskyFeedDefs.PostView) => void
+type BulkBlockResult = {
+  blockedDids: string[]
+  failedDids: string[]
+}
 
 const EngagementContext = createContext<OpenEngagement | null>(null)
+
+async function getRelationships(actor: string, others: string[]) {
+  const relationships = new Map<string, AppBskyGraphDefs.Relationship>()
+  for (let index = 0; index < others.length; index += 30) {
+    const response = await publicAgent.app.bsky.graph.getRelationships({
+      actor,
+      others: others.slice(index, index + 30),
+    })
+    for (const relationship of response.data.relationships) {
+      if (AppBskyGraphDefs.isRelationship(relationship)) {
+        relationships.set(relationship.did, relationship)
+      }
+    }
+  }
+  return relationships
+}
 
 function profileHref(actor: string) {
   return `#/profile/${encodeURIComponent(actor)}`
@@ -789,8 +810,10 @@ function EngagementPanel({
   quotes,
   loading,
   error,
+  currentDid,
   onClose,
   onOpenThread,
+  onBlockActors,
 }: {
   kind: EngagementKind
   post: AppBskyFeedDefs.PostView
@@ -798,11 +821,44 @@ function EngagementPanel({
   quotes: AppBskyFeedDefs.PostView[]
   loading: boolean
   error: string
+  currentDid: string
   onClose: () => void
   onOpenThread: (post: AppBskyFeedDefs.PostView) => void
+  onBlockActors: (actors: AppBskyActorDefs.ProfileView[]) => Promise<BulkBlockResult>
 }) {
   const record = AppBskyFeedPost.isRecord(post.record) ? post.record : null
   const title = kind === 'likes' ? 'Likes' : 'Reposts'
+  const [confirmingBlock, setConfirmingBlock] = useState(false)
+  const [blocking, setBlocking] = useState(false)
+  const [blockedDids, setBlockedDids] = useState<string[]>([])
+  const [blockMessage, setBlockMessage] = useState('')
+  const blockableActors = kind === 'likes'
+    ? actors.filter((actor) => (
+        actor.did !== currentDid &&
+        !actor.viewer?.blocking &&
+        !blockedDids.includes(actor.did)
+      ))
+    : []
+  const skippedActorCount = kind === 'likes' ? actors.length - blockableActors.length : 0
+
+  async function blockAllShown() {
+    setBlocking(true)
+    setBlockMessage('')
+    try {
+      const result = await onBlockActors(blockableActors)
+      setBlockedDids((current) => [...new Set([...current, ...result.blockedDids])])
+      setBlockMessage(
+        result.failedDids.length > 0
+          ? `Blocked ${result.blockedDids.length} account${result.blockedDids.length === 1 ? '' : 's'}; ${result.failedDids.length} failed.`
+          : `Blocked ${result.blockedDids.length} account${result.blockedDids.length === 1 ? '' : 's'}.`,
+      )
+      setConfirmingBlock(false)
+    } catch (cause) {
+      setBlockMessage(cause instanceof Error ? cause.message : 'Could not block these accounts.')
+    } finally {
+      setBlocking(false)
+    }
+  }
 
   return (
     <section className="thread-panel engagement-panel" aria-label={title}>
@@ -828,6 +884,51 @@ function EngagementPanel({
           </span>
         )}
       </div>
+      {kind === 'likes' && !loading && !error && (
+        <div className="bulk-block-control">
+          {confirmingBlock ? (
+            <div className="bulk-block-confirm" role="alertdialog" aria-label="Confirm bulk block">
+              <p>
+                Block {blockableActors.length} account{blockableActors.length === 1 ? '' : 's'}?
+                This creates a Bluesky block for each one and may disrupt conversation threads.
+              </p>
+              {skippedActorCount > 0 && (
+                <small>
+                  {skippedActorCount} account{skippedActorCount === 1 ? '' : 's'} skipped:
+                  your account and any already-blocked accounts are excluded.
+                </small>
+              )}
+              <div className="bulk-block-actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => setConfirmingBlock(false)}
+                  disabled={blocking}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="danger-button"
+                  onClick={() => void blockAllShown()}
+                  disabled={blocking || blockableActors.length === 0}
+                >
+                  {blocking ? 'Blocking…' : `Block ${blockableActors.length} accounts`}
+                </button>
+              </div>
+            </div>
+          ) : blockableActors.length > 0 ? (
+            <button
+              type="button"
+              className="bulk-block-button"
+              onClick={() => setConfirmingBlock(true)}
+            >
+              Block all {blockableActors.length} shown
+            </button>
+          ) : null}
+          {blockMessage && <p className="bulk-block-message" role="status">{blockMessage}</p>}
+        </div>
+      )}
       {loading ? (
         <div className="trends-loading" aria-live="polite">
           <div className="spinner spinner-small" />
@@ -960,6 +1061,12 @@ function ProfilePage({
           )}
           <h1>{profile.displayName || profile.handle}</h1>
           <p className="profile-handle">@{profile.handle}</p>
+          {(profile.viewer?.following || profile.viewer?.followedBy) && (
+            <div className="profile-relationships" aria-label="Account relationship">
+              {profile.viewer.following && <span>Following</span>}
+              {profile.viewer.followedBy && <span>Follows you</span>}
+            </div>
+          )}
           {profile.description && (
             <p className="profile-description">{profile.description}</p>
           )}
@@ -1092,7 +1199,28 @@ export default function App() {
           limit: 100,
         })
         if (requestId === engagementRequestRef.current) {
-          setEngagementActors(response.data.likes.map((like) => like.actor))
+          let actors = response.data.likes.map((like) => like.actor)
+          if (didRef.current) {
+            const relationships = await getRelationships(
+              didRef.current,
+              actors.map((actor) => actor.did),
+            )
+            actors = actors.map((actor) => {
+              const relationship = relationships.get(actor.did)
+              if (!relationship) return actor
+              return {
+                ...actor,
+                viewer: {
+                  ...actor.viewer,
+                  following: relationship.following,
+                  followedBy: relationship.followedBy,
+                  blocking: relationship.blocking,
+                  blockedBy: Boolean(relationship.blockedBy),
+                },
+              }
+            })
+          }
+          if (requestId === engagementRequestRef.current) setEngagementActors(actors)
         }
       } else {
         const [repostsResponse, quotesResponse] = await Promise.all([
@@ -1111,6 +1239,29 @@ export default function App() {
     } finally {
       if (requestId === engagementRequestRef.current) setEngagementLoading(false)
     }
+  }, [])
+
+  const blockActors = useCallback(async (
+    actors: AppBskyActorDefs.ProfileView[],
+  ): Promise<BulkBlockResult> => {
+    const agent = agentRef.current
+    const repo = didRef.current
+    if (!agent || !repo) throw new Error('You must be signed in to block accounts.')
+
+    const blockedDids: string[] = []
+    const failedDids: string[] = []
+    for (const actor of actors) {
+      try {
+        await agent.app.bsky.graph.block.create(
+          { repo },
+          { subject: actor.did, createdAt: new Date().toISOString() },
+        )
+        blockedDids.push(actor.did)
+      } catch {
+        failedDids.push(actor.did)
+      }
+    }
+    return { blockedDids, failedDids }
   }, [])
 
   const openThread = useCallback(async (post: AppBskyFeedDefs.PostView) => {
@@ -1236,7 +1387,26 @@ export default function App() {
           actor: profileActor as string,
         })
         if (cancelled) return
-        setProfile(profileResponse.data)
+        const profileData = profileResponse.data
+        if (didRef.current && profileData.did !== didRef.current) {
+          const relationships = await getRelationships(didRef.current, [profileData.did])
+          const relationship = relationships.get(profileData.did)
+          if (cancelled) return
+          if (relationship) {
+            setProfile({
+              ...profileData,
+              viewer: {
+                ...profileData.viewer,
+                following: relationship.following,
+                followedBy: relationship.followedBy,
+                blocking: relationship.blocking,
+                blockedBy: Boolean(relationship.blockedBy),
+              },
+            })
+            return
+          }
+        }
+        setProfile(profileData)
       } catch (cause) {
         if (!cancelled) {
           setProfileError(
@@ -1813,8 +1983,10 @@ export default function App() {
                     quotes={engagementQuotes}
                     loading={engagementLoading}
                     error={engagementError}
+                    currentDid={didRef.current ?? ''}
                     onClose={closeEngagement}
                     onOpenThread={openThread}
+                    onBlockActors={blockActors}
                   />
                 ) : selectedThreadPost ? (
                   <ThreadPanel

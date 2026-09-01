@@ -1294,6 +1294,64 @@ h1 {
   font-size: 12px;
 }
 
+.bulk-block-control {
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(23, 34, 27, 0.1);
+}
+
+.bulk-block-button,
+.danger-button {
+  padding: 8px 11px;
+  border: 1px solid rgba(145, 52, 42, 0.35);
+  border-radius: 9px;
+  color: #8b3028;
+  background: rgba(255, 244, 241, 0.9);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.bulk-block-button:hover,
+.danger-button:hover {
+  border-color: rgba(145, 52, 42, 0.65);
+  background: #fce9e5;
+}
+
+.bulk-block-confirm {
+  display: grid;
+  gap: 9px;
+}
+
+.bulk-block-confirm p,
+.bulk-block-message {
+  margin: 0;
+  color: #4f5d54;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.bulk-block-confirm small {
+  color: #69726c;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.bulk-block-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.bulk-block-actions .secondary-button,
+.bulk-block-actions .danger-button {
+  min-height: 34px;
+  padding: 7px 10px;
+  font-size: 12px;
+}
+
+.bulk-block-message {
+  margin-top: 8px;
+}
+
 .engagement-actor-list {
   display: grid;
 }
@@ -1480,6 +1538,24 @@ h1 {
 .profile-handle {
   margin: 8px 0 0;
   color: #69726c;
+}
+
+.profile-relationships {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.profile-relationships span {
+  padding: 4px 8px;
+  border: 1px solid rgba(43, 110, 79, 0.24);
+  border-radius: 999px;
+  color: #2b6e4f;
+  background: rgba(228, 236, 223, 0.68);
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.2;
 }
 
 .profile-description {
