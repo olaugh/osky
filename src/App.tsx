@@ -47,6 +47,10 @@ function profileActorFromHash() {
   }
 }
 
+function settingsFromHash() {
+  return window.location.hash === '#/settings'
+}
+
 function clientId() {
   const isLocal = ['localhost', '127.0.0.1'].includes(window.location.hostname)
 
@@ -857,6 +861,28 @@ function EngagementPanel({
   )
 }
 
+function SettingsPage({ signedInHandle }: { signedInHandle: string }) {
+  return (
+    <div className="settings-page">
+      <div className="settings-heading">
+        <p className="eyebrow">Preferences</p>
+        <h1>Settings</h1>
+      </div>
+      <section className="settings-card">
+        <h2>Account</h2>
+        <p>Signed in as <strong>@{signedInHandle}</strong></p>
+      </section>
+      <section className="settings-card">
+        <h2>AI &amp; moderation</h2>
+        <p>
+          LLM provider, personal values, and automated blocking controls will be
+          configured here as they are added to osky.
+        </p>
+      </section>
+    </div>
+  )
+}
+
 function ProfilePage({
   profile,
   feed,
@@ -1022,6 +1048,7 @@ export default function App() {
   const [trendsLoading, setTrendsLoading] = useState(false)
   const [trendsError, setTrendsError] = useState('')
   const [profileActor, setProfileActor] = useState<string | null>(profileActorFromHash)
+  const [settingsOpen, setSettingsOpen] = useState(settingsFromHash)
   const [profile, setProfile] = useState<AppBskyActorDefs.ProfileViewDetailed | null>(null)
   const [profileFeed, setProfileFeed] = useState<AppBskyFeedDefs.FeedViewPost[]>([])
   const [profileLoading, setProfileLoading] = useState(false)
@@ -1158,6 +1185,7 @@ export default function App() {
       status !== 'signed-in' ||
       submittedSearch ||
       profileActor ||
+      settingsOpen ||
       !cursor ||
       !sentinel
     ) return
@@ -1173,7 +1201,7 @@ export default function App() {
 
     observer.observe(sentinel)
     return () => observer.disconnect()
-  }, [cursor, loadFeed, profileActor, status, submittedSearch])
+  }, [cursor, loadFeed, profileActor, settingsOpen, status, submittedSearch])
 
   useEffect(() => {
     const update = () => setShowScrollTop(window.scrollY > 320)
@@ -1185,6 +1213,7 @@ export default function App() {
   useEffect(() => {
     const syncRoute = () => {
       setProfileActor(profileActorFromHash())
+      setSettingsOpen(settingsFromHash())
       setProfileFeedMode('posts')
       window.scrollTo({ top: 0 })
     }
@@ -1420,6 +1449,23 @@ export default function App() {
     setPostResults([])
   }
 
+  function goHome(event: React.MouseEvent<HTMLAnchorElement>) {
+    event.preventDefault()
+    clearSearch()
+    closeThread()
+    closeEngagement()
+    setProfileActor(null)
+    setSettingsOpen(false)
+    window.history.pushState(null, '', `${window.location.pathname}${window.location.search}`)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  function openSettings() {
+    clearSearch()
+    closeThread()
+    closeEngagement()
+  }
+
   async function signOut() {
     if (!oauthRef.current || !didRef.current) return
 
@@ -1486,9 +1532,33 @@ export default function App() {
         <div className="signed-in-layout">
           <aside className="left-sidebar" aria-label="osky navigation">
             <div className="left-sidebar-sticky">
-              <a className="wordmark" href="#" aria-label="osky home">
+              <a className="wordmark" href="#" aria-label="osky home" onClick={goHome}>
                 <span className="mark">o</span>sky
               </a>
+              <nav className="left-nav" aria-label="Primary navigation">
+                <a
+                  className={`left-nav-link${!settingsOpen && !profileActor && !submittedSearch ? ' left-nav-link-active' : ''}`}
+                  href="#"
+                  onClick={goHome}
+                  aria-current={!settingsOpen && !profileActor && !submittedSearch ? 'page' : undefined}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M3.5 10.5 12 3l8.5 7.5v9a1.5 1.5 0 0 1-1.5 1.5h-4.5v-6h-5v6H5a1.5 1.5 0 0 1-1.5-1.5v-9Z" />
+                  </svg>
+                  <span>Home</span>
+                </a>
+                <a
+                  className={`left-nav-link${settingsOpen ? ' left-nav-link-active' : ''}`}
+                  href="#/settings"
+                  onClick={openSettings}
+                  aria-current={settingsOpen ? 'page' : undefined}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm8.1 4.8.1-1.3-.1-1.3 2-1.6-2-3.4-2.4 1a8.8 8.8 0 0 0-2.2-1.3L15.1 2h-4.2l-.4 2.4c-.8.3-1.5.7-2.2 1.3l-2.4-1-2 3.4 2 1.6-.1 1.3.1 1.3-2 1.6 2 3.4 2.4-1c.7.6 1.4 1 2.2 1.3l.4 2.4h4.2l.4-2.4c.8-.3 1.5-.7 2.2-1.3l2.4 1 2-3.4-2-1.6Z" />
+                  </svg>
+                  <span>Settings</span>
+                </a>
+              </nav>
               <div className="left-account">
                 <span>@{signedInHandle}</span>
                 <button className="text-button" onClick={signOut} disabled={busy}>
@@ -1503,7 +1573,9 @@ export default function App() {
             <div className="primary-pane">
               {error && <p className="error feed-error">{error}</p>}
 
-          {profileActor ? (
+          {settingsOpen ? (
+            <SettingsPage signedInHandle={signedInHandle} />
+          ) : profileActor ? (
             <ProfilePage
               profile={profile}
               feed={profileFeed}
