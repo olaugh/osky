@@ -969,19 +969,6 @@ h1 {
   transform: translateX(24px);
 }
 
-.scroll-top-dock-main {
-  grid-column: 2;
-  display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
-  gap: 32px;
-}
-
-.scroll-top-dock-main .scroll-top-button {
-  grid-column: 2;
-  justify-self: end;
-  transform: translateX(48px);
-}
-
 .scroll-top-dock .scroll-top-button {
   pointer-events: auto;
   border-color: rgba(43, 110, 79, 0.28);
@@ -991,6 +978,7 @@ h1 {
 }
 
 .thread-panel {
+  position: relative;
   max-height: calc(100vh - 132px);
   overflow-y: auto;
   border: 1px solid rgba(23, 34, 27, 0.14);
@@ -998,40 +986,21 @@ h1 {
   background: rgba(255, 253, 247, 0.92);
 }
 
-.thread-panel-heading {
+.thread-panel-close {
   position: sticky;
-  z-index: 3;
-  top: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 18px 18px 14px;
-  border-bottom: 1px solid rgba(23, 34, 27, 0.1);
-  background: rgba(255, 253, 247, 0.96);
-  backdrop-filter: blur(10px);
-}
-
-.thread-panel-heading .eyebrow {
-  margin-bottom: 4px;
-}
-
-.thread-panel-heading h2 {
-  margin: 0;
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: 26px;
-  font-weight: 500;
-}
-
-.thread-panel-heading > button {
+  z-index: 4;
+  top: 12px;
   width: 34px;
   height: 34px;
   display: grid;
   place-items: center;
+  margin: 12px 12px -46px auto;
   border: 1px solid rgba(23, 34, 27, 0.18);
   border-radius: 50%;
   color: #2b6e4f;
-  background: transparent;
+  background: rgba(255, 253, 247, 0.94);
+  box-shadow: 0 5px 16px rgba(23, 34, 27, 0.12);
+  backdrop-filter: blur(8px);
   font-size: 24px;
   line-height: 1;
 }
@@ -1233,10 +1202,6 @@ h1 {
     transform: translateX(16px);
   }
 
-  .scroll-top-dock-main {
-    gap: 24px;
-  }
-
 }
 
 @media (max-width: 900px) {
@@ -1266,15 +1231,6 @@ h1 {
     position: static;
   }
 
-  .scroll-top-dock-main {
-    margin-left: auto;
-    display: flex;
-    justify-content: flex-end;
-  }
-
-  .scroll-top-dock-main .scroll-top-button {
-    transform: none;
-  }
 }
 
 @media (max-width: 720px) {
