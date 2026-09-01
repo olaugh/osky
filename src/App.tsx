@@ -33,6 +33,8 @@ const SCOPE = [
   ...GRAPH_SCOPES,
 ].join(' ')
 const THEME_STORAGE_KEY = 'osky-theme'
+const RECENT_BLOCKS_STORAGE_KEY = 'osky-recent-blocks'
+const RECENT_BLOCK_TTL_MS = 10 * 60 * 1000
 const publicAgent = new Agent('https://public.api.bsky.app')
 
 type ProfileFeedMode = 'posts' | 'replies' | 'both'
@@ -64,6 +66,20 @@ function applyTheme(preference: ThemePreference) {
 }
 
 applyTheme(storedThemePreference())
+
+function storedRecentBlocks() {
+  try {
+    const stored = JSON.parse(
+      window.sessionStorage.getItem(RECENT_BLOCKS_STORAGE_KEY) ?? '{}',
+    ) as Record<string, number>
+    const cutoff = Date.now() - RECENT_BLOCK_TTL_MS
+    return Object.fromEntries(
+      Object.entries(stored).filter(([, blockedAt]) => blockedAt >= cutoff),
+    )
+  } catch {
+    return {} as Record<string, number>
+  }
+}
 
 async function getRelationships(actor: string, others: string[]) {
   const relationships = new Map<string, AppBskyGraphDefs.Relationship>()
@@ -821,7 +837,13 @@ function AccountCard({ profile }: { profile: AppBskyActorDefs.ProfileView }) {
   )
 }
 
-function EngagementActorRow({ profile }: { profile: AppBskyActorDefs.ProfileView }) {
+function EngagementActorRow({
+  profile,
+  blocked = false,
+}: {
+  profile: AppBskyActorDefs.ProfileView
+  blocked?: boolean
+}) {
   return (
     <a className="engagement-actor" href={profileHref(profile.handle)}>
       {profile.avatar ? (
@@ -833,7 +855,10 @@ function EngagementActorRow({ profile }: { profile: AppBskyActorDefs.ProfileView
       )}
       <span className="engagement-actor-copy">
         <strong>{profile.displayName || profile.handle}</strong>
-        <span>@{profile.handle}</span>
+        <span className="engagement-actor-meta">
+          <span>@{profile.handle}</span>
+          {blocked && <span className="blocked-badge">Blocked</span>}
+        </span>
       </span>
     </a>
   )
@@ -847,6 +872,7 @@ function EngagementPanel({
   loading,
   error,
   currentDid,
+  blockedDids,
   onClose,
   onOpenThread,
   onBlockActors,
@@ -858,6 +884,7 @@ function EngagementPanel({
   loading: boolean
   error: string
   currentDid: string
+  blockedDids: string[]
   onClose: () => void
   onOpenThread: (post: AppBskyFeedDefs.PostView) => void
   onBlockActors: (actors: AppBskyActorDefs.ProfileView[]) => Promise<BulkBlockResult>
@@ -866,7 +893,6 @@ function EngagementPanel({
   const title = kind === 'likes' ? 'Likes' : 'Reposts'
   const [confirmingBlock, setConfirmingBlock] = useState(false)
   const [blocking, setBlocking] = useState(false)
-  const [blockedDids, setBlockedDids] = useState<string[]>([])
   const [blockMessage, setBlockMessage] = useState('')
   const blockableActors = kind === 'likes'
     ? actors.filter((actor) => (
@@ -882,7 +908,6 @@ function EngagementPanel({
     setBlockMessage('')
     try {
       const result = await onBlockActors(blockableActors)
-      setBlockedDids((current) => [...new Set([...current, ...result.blockedDids])])
       setBlockMessage(
         result.failedDids.length > 0
           ? `Blocked ${result.blockedDids.length} account${result.blockedDids.length === 1 ? '' : 's'}; ${result.failedDids.length} failed.`
@@ -977,7 +1002,11 @@ function EngagementPanel({
           {actors.length > 0 && (
             <div className="engagement-actor-list">
               {actors.map((actor) => (
-                <EngagementActorRow key={actor.did} profile={actor} />
+                <EngagementActorRow
+                  key={actor.did}
+                  profile={actor}
+                  blocked={Boolean(actor.viewer?.blocking) || blockedDids.includes(actor.did)}
+                />
               ))}
             </div>
           )}
@@ -1053,8 +1082,11 @@ function ProfilePage({
   feedMode,
   feedLoading,
   feedError,
+  currentDid,
+  recentlyBlocked,
   onFeedModeChange,
   onOpenThread,
+  onBlockProfile,
 }: {
   profile: AppBskyActorDefs.ProfileViewDetailed | null
   feed: AppBskyFeedDefs.FeedViewPost[]
@@ -1063,9 +1095,39 @@ function ProfilePage({
   feedMode: ProfileFeedMode
   feedLoading: boolean
   feedError: string
+  currentDid: string
+  recentlyBlocked: boolean
   onFeedModeChange: (mode: ProfileFeedMode) => void
   onOpenThread: (post: AppBskyFeedDefs.PostView) => void
+  onBlockProfile: (profile: AppBskyActorDefs.ProfileViewDetailed) => Promise<BulkBlockResult>
 }) {
+  const [blockedDid, setBlockedDid] = useState<string | null>(null)
+  const [confirmingBlock, setConfirmingBlock] = useState(false)
+  const [blockingProfile, setBlockingProfile] = useState(false)
+  const [blockError, setBlockError] = useState('')
+
+  const blocked = Boolean(
+    profile?.viewer?.blocking || recentlyBlocked || (profile && blockedDid === profile.did),
+  )
+
+  async function blockProfile() {
+    if (!profile) return
+    setBlockingProfile(true)
+    setBlockError('')
+    try {
+      const result = await onBlockProfile(profile)
+      if (!result.blockedDids.includes(profile.did)) {
+        throw new Error('Could not block this account.')
+      }
+      setBlockedDid(profile.did)
+      setConfirmingBlock(false)
+    } catch (cause) {
+      setBlockError(cause instanceof Error ? cause.message : 'Could not block this account.')
+    } finally {
+      setBlockingProfile(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="profile-loading" aria-live="polite">
@@ -1120,8 +1182,47 @@ function ProfilePage({
               {profile.handle.slice(0, 1).toUpperCase()}
             </div>
           )}
-          <h1>{profile.displayName || profile.handle}</h1>
-          <p className="profile-handle">@{profile.handle}</p>
+          <div className="profile-identity-row">
+            <div>
+              <h1>{profile.displayName || profile.handle}</h1>
+              <p className="profile-handle">@{profile.handle}</p>
+            </div>
+            {profile.did !== currentDid && (
+              <div className="profile-block-actions">
+                {blocked ? (
+                  <span className="profile-blocked-badge">Blocked</span>
+                ) : confirmingBlock ? (
+                  <>
+                    <button
+                      type="button"
+                      className="secondary-button profile-action-button"
+                      onClick={() => setConfirmingBlock(false)}
+                      disabled={blockingProfile}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="danger-button profile-action-button"
+                      onClick={() => void blockProfile()}
+                      disabled={blockingProfile}
+                    >
+                      {blockingProfile ? 'Blocking…' : 'Confirm block'}
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    className="bulk-block-button profile-action-button"
+                    onClick={() => setConfirmingBlock(true)}
+                  >
+                    Block
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+          {blockError && <p className="profile-block-error" role="alert">{blockError}</p>}
           {(profile.viewer?.following || profile.viewer?.followedBy) && (
             <div className="profile-relationships" aria-label="Account relationship">
               {profile.viewer.following && <span>Following</span>}
@@ -1238,6 +1339,32 @@ export default function App() {
   const [engagementError, setEngagementError] = useState('')
   const [showScrollTop, setShowScrollTop] = useState(false)
   const [theme, setTheme] = useState<ThemePreference>(storedThemePreference)
+  const recentBlockTimesRef = useRef<Record<string, number> | null>(null)
+  if (!recentBlockTimesRef.current) recentBlockTimesRef.current = storedRecentBlocks()
+  const [recentBlockedDids, setRecentBlockedDids] = useState<string[]>(
+    () => Object.keys(recentBlockTimesRef.current ?? {}),
+  )
+
+  const isRecentlyBlocked = useCallback((did: string) => (
+    Boolean(
+      recentBlockTimesRef.current?.[did] &&
+      recentBlockTimesRef.current[did] >= Date.now() - RECENT_BLOCK_TTL_MS,
+    )
+  ), [])
+
+  const rememberBlockedDids = useCallback((dids: string[]) => {
+    if (dids.length === 0) return
+    const blocks = recentBlockTimesRef.current ?? {}
+    const blockedAt = Date.now()
+    for (const did of dids) blocks[did] = blockedAt
+    recentBlockTimesRef.current = blocks
+    setRecentBlockedDids(Object.keys(blocks))
+    try {
+      window.sessionStorage.setItem(RECENT_BLOCKS_STORAGE_KEY, JSON.stringify(blocks))
+    } catch {
+      // Keep the in-memory cache even when browser storage is unavailable.
+    }
+  }, [])
 
   useEffect(() => {
     window.localStorage.setItem(THEME_STORAGE_KEY, theme)
@@ -1292,6 +1419,9 @@ export default function App() {
                 },
               }
             })
+            actors = actors.filter((actor) => (
+              !actor.viewer?.blocking && !isRecentlyBlocked(actor.did)
+            ))
           }
           if (requestId === engagementRequestRef.current) setEngagementActors(actors)
         }
@@ -1301,8 +1431,28 @@ export default function App() {
           publicAgent.app.bsky.feed.getQuotes({ uri: post.uri, cid: post.cid, limit: 100 }),
         ])
         if (requestId === engagementRequestRef.current) {
-          setEngagementActors(repostsResponse.data.repostedBy)
-          setEngagementQuotes(quotesResponse.data.posts)
+          let actors = repostsResponse.data.repostedBy
+          let quotes = quotesResponse.data.posts
+          if (didRef.current) {
+            const relationships = await getRelationships(
+              didRef.current,
+              [...new Set([
+                ...actors.map((actor) => actor.did),
+                ...quotes.map((quote) => quote.author.did),
+              ])],
+            )
+            actors = actors.filter((actor) => (
+              !relationships.get(actor.did)?.blocking && !isRecentlyBlocked(actor.did)
+            ))
+            quotes = quotes.filter((quote) => (
+              !relationships.get(quote.author.did)?.blocking &&
+              !isRecentlyBlocked(quote.author.did)
+            ))
+          }
+          if (requestId === engagementRequestRef.current) {
+            setEngagementActors(actors)
+            setEngagementQuotes(quotes)
+          }
         }
       }
     } catch (cause) {
@@ -1312,10 +1462,10 @@ export default function App() {
     } finally {
       if (requestId === engagementRequestRef.current) setEngagementLoading(false)
     }
-  }, [])
+  }, [isRecentlyBlocked])
 
   const blockActors = useCallback(async (
-    actors: AppBskyActorDefs.ProfileView[],
+    actors: Array<{ did: string }>,
   ): Promise<BulkBlockResult> => {
     const agent = agentRef.current
     const repo = didRef.current
@@ -1334,8 +1484,9 @@ export default function App() {
         failedDids.push(actor.did)
       }
     }
+    rememberBlockedDids(blockedDids)
     return { blockedDids, failedDids }
-  }, [])
+  }, [rememberBlockedDids])
 
   const openThread = useCallback(async (post: AppBskyFeedDefs.PostView) => {
     engagementRequestRef.current += 1
@@ -1871,8 +2022,15 @@ export default function App() {
               feedMode={profileFeedMode}
               feedLoading={profileFeedLoading}
               feedError={profileFeedError}
+              currentDid={didRef.current ?? ''}
+              recentlyBlocked={Boolean(
+                profile &&
+                recentBlockedDids.includes(profile.did) &&
+                isRecentlyBlocked(profile.did),
+              )}
               onFeedModeChange={setProfileFeedMode}
               onOpenThread={openThread}
+              onBlockProfile={(profile) => blockActors([profile])}
             />
           ) : submittedSearch ? (
             <div className="search-results">
@@ -2079,6 +2237,7 @@ export default function App() {
                     loading={engagementLoading}
                     error={engagementError}
                     currentDid={didRef.current ?? ''}
+                    blockedDids={recentBlockedDids.filter(isRecentlyBlocked)}
                     onClose={closeEngagement}
                     onOpenThread={openThread}
                     onBlockActors={blockActors}
