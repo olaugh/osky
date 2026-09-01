@@ -115,32 +115,58 @@ type MediaImage = {
   aspectRatio?: { width: number; height: number }
 }
 
+function AltBadge({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false)
+
+  return (
+    <button
+      type="button"
+      className={`alt-badge${expanded ? ' alt-badge-expanded' : ''}`}
+      aria-expanded={expanded}
+      aria-label={expanded ? 'Hide alt text' : 'Show alt text'}
+      onClick={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        setExpanded((current) => !current)
+      }}
+    >
+      <span className="alt-label">ALT</span>
+      <span className="alt-text">{text}</span>
+    </button>
+  )
+}
+
 function ImageGallery({ images }: { images: MediaImage[] }) {
   if (images.length === 0) return null
 
   return (
     <div className={`media-grid media-count-${Math.min(images.length, 5)}`}>
       {images.map((image, index) => (
-        <a
+        <div
           key={`${image.fullsize}-${index}`}
           className="media-item"
-          href={image.fullsize}
-          target="_blank"
-          rel="noreferrer"
-          aria-label={image.alt ? `Open image: ${image.alt}` : 'Open image'}
           style={
             images.length === 1 && image.aspectRatio
               ? { aspectRatio: `${image.aspectRatio.width} / ${image.aspectRatio.height}` }
               : undefined
           }
         >
-          <img
-            className="media-image"
-            src={image.thumb}
-            alt={image.alt}
-            loading="lazy"
-          />
-        </a>
+          <a
+            className="media-link"
+            href={image.fullsize}
+            target="_blank"
+            rel="noreferrer"
+            aria-label={image.alt ? `Open image: ${image.alt}` : 'Open image'}
+          >
+            <img
+              className="media-image"
+              src={image.thumb}
+              alt={image.alt}
+              loading="lazy"
+            />
+          </a>
+          {image.alt && <AltBadge text={image.alt} />}
+        </div>
       ))}
     </div>
   )
@@ -211,7 +237,7 @@ function VideoEmbed({ video }: { video: AppBskyEmbedVideo.View }) {
         poster={video.thumbnail}
         aria-label={video.alt || 'Embedded video'}
       />
-      {video.alt && <span className="alt-badge" title={video.alt}>ALT</span>}
+      {video.alt && <AltBadge text={video.alt} />}
     </div>
   )
 }
