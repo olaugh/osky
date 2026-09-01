@@ -83,6 +83,7 @@ button:disabled {
 
 .left-sidebar {
   min-width: 0;
+  align-self: stretch;
 }
 
 .left-sidebar-sticky {
@@ -261,6 +262,10 @@ h1 {
 .primary-pane,
 .sidebar {
   min-width: 0;
+}
+
+.sidebar {
+  align-self: stretch;
 }
 
 .sidebar-sticky {
@@ -608,6 +613,55 @@ h1 {
   border-bottom: 0;
 }
 
+.thread-aware-post {
+  position: relative;
+}
+
+.feed > .thread-aware-post {
+  border-bottom: 1px solid rgba(23, 34, 27, 0.12);
+}
+
+.feed > .thread-aware-post:last-child {
+  border-bottom: 0;
+}
+
+.feed > .thread-aware-post > .post,
+.feed > .thread-aware-post > .inline-reply > .post {
+  border-bottom: 0;
+}
+
+.inline-reply {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  left: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.inline-reply-visible {
+  position: relative;
+  top: auto;
+  visibility: visible;
+  border-top: 1px solid rgba(23, 34, 27, 0.1);
+  background: rgba(228, 236, 223, 0.28);
+  pointer-events: auto;
+}
+
+.reply-connector {
+  position: absolute;
+  z-index: 1;
+  top: -18px;
+  left: 45px;
+  height: 36px;
+  border-left: 2px solid #b8c5ba;
+}
+
+.nested-post {
+  padding-top: 18px;
+  padding-bottom: 18px;
+}
+
 .repost {
   margin: 0 0 10px 64px;
   color: #69726c;
@@ -763,15 +817,111 @@ h1 {
 }
 
 .post-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 5px;
   color: #69726c;
   font-size: 12px;
   line-height: 1.5;
+}
+
+.post-meta a,
+.post-meta button {
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
   text-decoration: none;
 }
 
-.post-meta:hover {
+.post-meta a:hover,
+.post-meta button:hover {
   color: #2b6e4f;
   text-decoration: underline;
+}
+
+.scroll-top-button {
+  width: 40px;
+  height: 40px;
+}
+
+.right-scroll-top {
+  display: flex;
+  justify-content: flex-end;
+  margin: -4px 0 14px;
+}
+
+.thread-panel {
+  max-height: calc(100vh - 132px);
+  overflow-y: auto;
+  border: 1px solid rgba(23, 34, 27, 0.14);
+  border-radius: 20px;
+  background: rgba(255, 253, 247, 0.92);
+}
+
+.thread-panel-heading {
+  position: sticky;
+  z-index: 3;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 18px 14px;
+  border-bottom: 1px solid rgba(23, 34, 27, 0.1);
+  background: rgba(255, 253, 247, 0.96);
+  backdrop-filter: blur(10px);
+}
+
+.thread-panel-heading .eyebrow {
+  margin-bottom: 4px;
+}
+
+.thread-panel-heading h2 {
+  margin: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 26px;
+  font-weight: 500;
+}
+
+.thread-panel-heading > button {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(23, 34, 27, 0.18);
+  border-radius: 50%;
+  color: #2b6e4f;
+  background: transparent;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.thread-panel-posts .post {
+  padding: 16px 14px;
+}
+
+.thread-panel-posts .post-grid {
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.thread-panel-posts .avatar,
+.thread-panel-posts .avatar-link {
+  width: 38px;
+  height: 38px;
+}
+
+.thread-panel-posts .post-text {
+  font-size: 14px;
+}
+
+.thread-panel-posts .media-count-2,
+.thread-panel-posts .media-count-3,
+.thread-panel-posts .media-count-4,
+.thread-panel-posts .media-count-5 {
+  grid-auto-rows: 100px;
 }
 
 .feed-sentinel {

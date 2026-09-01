@@ -76,6 +76,21 @@ function formatCount(value: number) {
   }).format(value)
 }
 
+function UpArrowIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M12 20V5m-6 6 6-6 6 6"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="2.2"
+      />
+    </svg>
+  )
+}
+
 type MediaImage = {
   thumb: string
   fullsize: string
@@ -219,17 +234,45 @@ function PostMedia({ embed }: { embed: AppBskyFeedDefs.PostView['embed'] }) {
   return null
 }
 
+const singleReplyCache = new Map<
+  string,
+  Promise<AppBskyFeedDefs.PostView | null>
+>()
+
+function getSingleReply(uri: string) {
+  const cached = singleReplyCache.get(uri)
+  if (cached) return cached
+
+  const request = publicAgent.app.bsky.feed
+    .getPostThread({ uri, depth: 1, parentHeight: 0 })
+    .then((response) => {
+      if (!AppBskyFeedDefs.isThreadViewPost(response.data.thread)) return null
+      const thread = response.data.thread as AppBskyFeedDefs.ThreadViewPost
+      const replies = (thread.replies ?? []).filter(AppBskyFeedDefs.isThreadViewPost)
+      if (replies.length !== 1) return null
+      return (replies[0] as AppBskyFeedDefs.ThreadViewPost).post
+    })
+    .catch(() => null)
+
+  singleReplyCache.set(uri, request)
+  return request
+}
+
 function PostCard({
   post,
   repost,
+  nested = false,
+  onOpenThread,
 }: {
   post: AppBskyFeedDefs.PostView
   repost?: AppBskyActorDefs.ProfileViewBasic
+  nested?: boolean
+  onOpenThread?: (post: AppBskyFeedDefs.PostView) => void
 }) {
   const record = AppBskyFeedPost.isRecord(post.record) ? post.record : null
 
   return (
-    <article className="post">
+    <article className={`post${nested ? ' nested-post' : ''}`}>
       {repost && (
         <p className="repost">Reposted by @{repost.handle}</p>
       )}
@@ -264,27 +307,187 @@ function PostCard({
             <p className="post-text unavailable">Unsupported post format</p>
           )}
           <PostMedia embed={post.embed} />
-          <a
-            className="post-meta"
-            href={postUrl(post)}
-            target="_blank"
-            rel="noreferrer"
-          >
-            {formatDate(post.indexedAt)} · {post.replyCount ?? 0} replies ·{' '}
-            {post.repostCount ?? 0} reposts · {post.likeCount ?? 0} likes
-          </a>
+          <div className="post-meta">
+            <a href={postUrl(post)} target="_blank" rel="noreferrer">
+              {formatDate(post.indexedAt)}
+            </a>
+            <span aria-hidden="true">·</span>
+            {onOpenThread && (post.replyCount ?? 0) > 0 ? (
+              <button type="button" onClick={() => onOpenThread(post)}>
+                {post.replyCount ?? 0} replies
+              </button>
+            ) : (
+              <span>{post.replyCount ?? 0} replies</span>
+            )}
+            <span aria-hidden="true">·</span>
+            <span>{post.repostCount ?? 0} reposts</span>
+            <span aria-hidden="true">·</span>
+            <span>{post.likeCount ?? 0} likes</span>
+          </div>
         </div>
       </div>
     </article>
   )
 }
 
-function FeedPost({ item }: { item: AppBskyFeedDefs.FeedViewPost }) {
+function ThreadAwarePost({
+  post,
+  repost,
+  onOpenThread,
+}: {
+  post: AppBskyFeedDefs.PostView
+  repost?: AppBskyActorDefs.ProfileViewBasic
+  onOpenThread: (post: AppBskyFeedDefs.PostView) => void
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const replyRef = useRef<HTMLDivElement | null>(null)
+  const [reply, setReply] = useState<AppBskyFeedDefs.PostView | null>(null)
+  const [fitsInline, setFitsInline] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container || post.replyCount !== 1) return
+
+    let cancelled = false
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting) return
+        observer.disconnect()
+        void getSingleReply(post.uri).then((result) => {
+          if (!cancelled && result) setReply(result)
+        })
+      },
+      { rootMargin: '300px 0px' },
+    )
+    observer.observe(container)
+    return () => {
+      cancelled = true
+      observer.disconnect()
+    }
+  }, [post.replyCount, post.uri])
+
+  useEffect(() => {
+    const container = containerRef.current
+    const replyElement = replyRef.current
+    if (!reply || !container || !replyElement) return
+
+    const parent = container.querySelector(':scope > .post') as HTMLElement | null
+    if (!parent) return
+
+    const measure = () => {
+      const combinedHeight = parent.getBoundingClientRect().height
+        + replyElement.getBoundingClientRect().height
+      setFitsInline(combinedHeight <= window.innerHeight * 0.6)
+    }
+
+    const frame = window.requestAnimationFrame(measure)
+    const resizeObserver = new ResizeObserver(measure)
+    resizeObserver.observe(parent)
+    resizeObserver.observe(replyElement)
+    window.addEventListener('resize', measure)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      resizeObserver.disconnect()
+      window.removeEventListener('resize', measure)
+    }
+  }, [reply])
+
+  return (
+    <div className="thread-aware-post" ref={containerRef}>
+      <PostCard post={post} repost={repost} onOpenThread={onOpenThread} />
+      {reply && (
+        <div
+          ref={replyRef}
+          className={`inline-reply${fitsInline === true ? ' inline-reply-visible' : ''}`}
+          aria-hidden={fitsInline !== true}
+        >
+          <span className="reply-connector" aria-hidden="true" />
+          <PostCard post={reply} nested onOpenThread={onOpenThread} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function FeedPost({
+  item,
+  onOpenThread,
+}: {
+  item: AppBskyFeedDefs.FeedViewPost
+  onOpenThread: (post: AppBskyFeedDefs.PostView) => void
+}) {
   const repost = AppBskyFeedDefs.isReasonRepost(item.reason)
     ? item.reason.by
     : undefined
 
-  return <PostCard post={item.post} repost={repost} />
+  return (
+    <ThreadAwarePost
+      post={item.post}
+      repost={repost}
+      onOpenThread={onOpenThread}
+    />
+  )
+}
+
+function flattenReplies(thread: AppBskyFeedDefs.ThreadViewPost) {
+  const replies: AppBskyFeedDefs.PostView[] = []
+  const visit = (node: AppBskyFeedDefs.ThreadViewPost) => {
+    for (const child of node.replies ?? []) {
+      if (!AppBskyFeedDefs.isThreadViewPost(child)) continue
+      const childThread = child as AppBskyFeedDefs.ThreadViewPost
+      replies.push(childThread.post)
+      visit(childThread)
+    }
+  }
+  visit(thread)
+  return replies
+}
+
+function ThreadPanel({
+  selected,
+  thread,
+  loading,
+  error,
+  onClose,
+}: {
+  selected: AppBskyFeedDefs.PostView
+  thread: AppBskyFeedDefs.ThreadViewPost | null
+  loading: boolean
+  error: string
+  onClose: () => void
+}) {
+  const replies = thread ? flattenReplies(thread) : []
+
+  return (
+    <section className="thread-panel" aria-labelledby="thread-panel-heading">
+      <div className="thread-panel-heading">
+        <div>
+          <p className="eyebrow">Conversation</p>
+          <h2 id="thread-panel-heading">Replies</h2>
+        </div>
+        <button type="button" onClick={onClose} aria-label="Close replies">×</button>
+      </div>
+      {loading ? (
+        <div className="trends-loading" aria-live="polite">
+          <div className="spinner spinner-small" />
+          <span>Loading replies…</span>
+        </div>
+      ) : error ? (
+        <p className="trends-message">{error}</p>
+      ) : (
+        <div className="thread-panel-posts">
+          <PostCard post={thread?.post ?? selected} nested />
+          {replies.length > 0 ? (
+            replies.map((reply) => (
+              <PostCard key={reply.uri} post={reply} nested />
+            ))
+          ) : (
+            <p className="trends-message">No visible replies.</p>
+          )}
+        </div>
+      )}
+    </section>
+  )
 }
 
 function AccountCard({ profile }: { profile: AppBskyActorDefs.ProfileView }) {
@@ -311,11 +514,13 @@ function ProfilePage({
   feed,
   loading,
   error,
+  onOpenThread,
 }: {
   profile: AppBskyActorDefs.ProfileViewDetailed | null
   feed: AppBskyFeedDefs.FeedViewPost[]
   loading: boolean
   error: string
+  onOpenThread: (post: AppBskyFeedDefs.PostView) => void
 }) {
   if (loading) {
     return (
@@ -398,7 +603,11 @@ function ProfilePage({
         {feed.length > 0 ? (
           <div className="feed" aria-live="polite">
             {feed.map((item, index) => (
-              <FeedPost key={`${item.post.uri}-${index}`} item={item} />
+              <FeedPost
+                key={`${item.post.uri}-${index}`}
+                item={item}
+                onOpenThread={onOpenThread}
+              />
             ))}
           </div>
         ) : (
@@ -440,6 +649,41 @@ export default function App() {
   const [profileFeed, setProfileFeed] = useState<AppBskyFeedDefs.FeedViewPost[]>([])
   const [profileLoading, setProfileLoading] = useState(false)
   const [profileError, setProfileError] = useState('')
+  const [selectedThreadPost, setSelectedThreadPost] = useState<AppBskyFeedDefs.PostView | null>(null)
+  const [thread, setThread] = useState<AppBskyFeedDefs.ThreadViewPost | null>(null)
+  const [threadLoading, setThreadLoading] = useState(false)
+  const [threadError, setThreadError] = useState('')
+  const [showScrollTop, setShowScrollTop] = useState(false)
+
+  const openThread = useCallback(async (post: AppBskyFeedDefs.PostView) => {
+    setSelectedThreadPost(post)
+    setThread(null)
+    setThreadError('')
+    setThreadLoading(true)
+    try {
+      const response = await publicAgent.app.bsky.feed.getPostThread({
+        uri: post.uri,
+        depth: 1000,
+        parentHeight: 0,
+      })
+      if (!AppBskyFeedDefs.isThreadViewPost(response.data.thread)) {
+        throw new Error('This conversation is unavailable.')
+      }
+      setThread(response.data.thread as AppBskyFeedDefs.ThreadViewPost)
+    } catch (cause) {
+      setThreadError(
+        cause instanceof Error ? cause.message : 'Could not load this conversation.',
+      )
+    } finally {
+      setThreadLoading(false)
+    }
+  }, [])
+
+  const closeThread = useCallback(() => {
+    setSelectedThreadPost(null)
+    setThread(null)
+    setThreadError('')
+  }, [])
 
   const loadFeed = useCallback(async (nextCursor?: string, append = false) => {
     const agent = agentRef.current
@@ -489,6 +733,13 @@ export default function App() {
     observer.observe(sentinel)
     return () => observer.disconnect()
   }, [cursor, loadFeed, profileActor, status, submittedSearch])
+
+  useEffect(() => {
+    const update = () => setShowScrollTop(window.scrollY > 320)
+    update()
+    window.addEventListener('scroll', update, { passive: true })
+    return () => window.removeEventListener('scroll', update)
+  }, [])
 
   useEffect(() => {
     const syncRoute = () => {
@@ -769,6 +1020,17 @@ export default function App() {
                   Sign out
                 </button>
               </div>
+              {showScrollTop && (
+                <button
+                  type="button"
+                  className="secondary-button icon-button scroll-top-button"
+                  onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+                  aria-label="Back to top"
+                  title="Back to top"
+                >
+                  <UpArrowIcon />
+                </button>
+              )}
             </div>
           </aside>
 
@@ -783,6 +1045,7 @@ export default function App() {
               feed={profileFeed}
               loading={profileLoading}
               error={profileError}
+              onOpenThread={openThread}
             />
           ) : submittedSearch ? (
             <div className="search-results">
@@ -814,7 +1077,11 @@ export default function App() {
                 {postResults.length > 0 ? (
                   <div className="feed" aria-live="polite">
                     {postResults.map((post, index) => (
-                      <PostCard key={`${post.uri}-${index}`} post={post} />
+                      <ThreadAwarePost
+                        key={`${post.uri}-${index}`}
+                        post={post}
+                        onOpenThread={openThread}
+                      />
                     ))}
                   </div>
                 ) : (
@@ -848,7 +1115,11 @@ export default function App() {
 
               <div className="feed" aria-live="polite">
                 {feed.map((item, index) => (
-                  <FeedPost key={`${item.post.uri}-${index}`} item={item} />
+                  <FeedPost
+                    key={`${item.post.uri}-${index}`}
+                    item={item}
+                    onOpenThread={openThread}
+                  />
                 ))}
               </div>
 
@@ -962,6 +1233,20 @@ export default function App() {
                     )}
                 </form>
 
+                {showScrollTop && (
+                  <div className="right-scroll-top">
+                    <button
+                      type="button"
+                      className="secondary-button icon-button scroll-top-button"
+                      onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+                      aria-label="Back to top"
+                      title="Back to top"
+                    >
+                      <UpArrowIcon />
+                    </button>
+                  </div>
+                )}
+
                 {!canSearch && (
                   <div className="permission-note">
                     <span>Search needs one additional read-only permission.</span>
@@ -971,6 +1256,15 @@ export default function App() {
                   </div>
                 )}
 
+                {selectedThreadPost ? (
+                  <ThreadPanel
+                    selected={selectedThreadPost}
+                    thread={thread}
+                    loading={threadLoading}
+                    error={threadError}
+                    onClose={closeThread}
+                  />
+                ) : (
                 <section className="trending-card" aria-labelledby="trending-heading">
                   <p className="eyebrow">Right now</p>
                   <h2 id="trending-heading">Trending</h2>
@@ -1001,6 +1295,7 @@ export default function App() {
                     </ol>
                   )}
                 </section>
+                )}
               </div>
             </aside>
           </div>
