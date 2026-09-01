@@ -565,6 +565,47 @@ function FeedPost({
   )
 }
 
+function isAuthoredReply(item: AppBskyFeedDefs.FeedViewPost) {
+  if (AppBskyFeedDefs.isReasonRepost(item.reason)) return false
+  const record = AppBskyFeedPost.isRecord(item.post.record)
+    ? item.post.record
+    : null
+  return Boolean(record?.reply)
+}
+
+function ProfileFeedItem({
+  item,
+  onOpenThread,
+}: {
+  item: AppBskyFeedDefs.FeedViewPost
+  onOpenThread: (post: AppBskyFeedDefs.PostView) => void
+}) {
+  if (!isAuthoredReply(item)) {
+    return <FeedPost item={item} onOpenThread={onOpenThread} />
+  }
+
+  const parent = item.reply?.parent
+  const parentPost = parent && AppBskyFeedDefs.isPostView(parent) ? parent : null
+  return (
+    <div className="profile-reply-pair">
+      <div className={`profile-reply-parent${parentPost ? ' profile-reply-parent-visible' : ''}`}>
+        {parentPost ? (
+          <PostCard post={parentPost} nested onOpenThread={onOpenThread} />
+        ) : (
+          <p className="profile-reply-parent-unavailable">
+            {parent && AppBskyFeedDefs.isBlockedPost(parent)
+              ? 'Parent post is from a blocked account'
+              : 'Parent post unavailable'}
+          </p>
+        )}
+      </div>
+      <div className="profile-reply-child">
+        <PostCard post={item.post} nested onOpenThread={onOpenThread} />
+      </div>
+    </div>
+  )
+}
+
 function flattenReplies(thread: AppBskyFeedDefs.ThreadViewPost) {
   const replies: AppBskyFeedDefs.PostView[] = []
   const visit = (node: AppBskyFeedDefs.ThreadViewPost) => {
@@ -773,7 +814,7 @@ function ProfilePage({
         ) : feed.length > 0 ? (
           <div className="feed" aria-live="polite">
             {feed.map((item, index) => (
-              <FeedPost
+              <ProfileFeedItem
                 key={`${item.post.uri}-${index}`}
                 item={item}
                 onOpenThread={onOpenThread}
@@ -975,12 +1016,7 @@ export default function App() {
         if (cancelled) return
 
         const nextFeed = profileFeedMode === 'replies'
-          ? response.data.feed.filter((item) => {
-              const record = AppBskyFeedPost.isRecord(item.post.record)
-                ? item.post.record
-                : null
-              return Boolean(record?.reply)
-            }).slice(0, 30)
+          ? response.data.feed.filter(isAuthoredReply).slice(0, 30)
           : response.data.feed
         setProfileFeed(nextFeed)
       } catch (cause) {

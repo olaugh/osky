@@ -2,7 +2,7 @@
 
 A small, personal Bluesky client built on AT Protocol.
 
-The first version supports OAuth sign-in, a desktop navigation rail with an infinitely scrolling feed and search/trending sidebar, smart inline reply previews and full conversations, Bluesky-style quote-post cards, inline image galleries and video, account autocomplete, account and skeet search, internal profile pages with post/reply filters, refresh, and sign-out.
+The first version supports OAuth sign-in, a desktop navigation rail with an infinitely scrolling feed and search/trending sidebar, smart inline reply previews and full conversations, Bluesky-style quote-post cards, inline image galleries and video, account autocomplete, account and skeet search, internal profile pages with post filters and paired parent/reply views, refresh, and sign-out.
 
 ## Run locally
 

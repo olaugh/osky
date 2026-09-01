@@ -625,6 +625,47 @@ h1 {
   border-bottom: 0;
 }
 
+.feed > .profile-reply-pair {
+  border-bottom: 1px solid rgba(23, 34, 27, 0.12);
+}
+
+.feed > .profile-reply-pair:last-child {
+  border-bottom: 0;
+}
+
+.profile-reply-pair .post {
+  border-bottom: 0;
+}
+
+.profile-reply-parent-visible {
+  position: relative;
+}
+
+.profile-reply-parent-visible::after {
+  position: absolute;
+  z-index: 1;
+  top: 66px;
+  bottom: -20px;
+  left: 45px;
+  border-left: 2px solid #b8c5ba;
+  content: "";
+  pointer-events: none;
+}
+
+.profile-reply-child {
+  position: relative;
+  border-top: 1px solid rgba(23, 34, 27, 0.1);
+  background: rgba(228, 236, 223, 0.28);
+}
+
+.profile-reply-parent-unavailable {
+  margin: 0;
+  padding: 20px 22px;
+  color: #69726c;
+  font-size: 14px;
+  font-style: italic;
+}
+
 .feed > .thread-aware-post > .post,
 .feed > .thread-aware-post > .inline-reply > .post {
   border-bottom: 0;
