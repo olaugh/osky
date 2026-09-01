@@ -1694,12 +1694,7 @@ export default function App() {
 
       {status === 'signed-out' && (
         <section className="login-card">
-          <p className="eyebrow">A quieter way into Bluesky</p>
-          <h1>Your feed, with room to make it yours.</h1>
-          <p className="intro">
-            osky is an experimental personal Bluesky client. Sign in through your
-            AT Protocol provider; osky never sees your password.
-          </p>
+          <h1 className="login-title">Sign in</h1>
           <form className="login-form" onSubmit={signIn}>
             <label htmlFor="handle">Bluesky handle</label>
             <div className="input-row">
