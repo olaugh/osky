@@ -26,11 +26,16 @@ const GRAPH_SCOPES = [
   `rpc:app.bsky.graph.muteActor?aud=${APPVIEW_AUDIENCE}`,
   `rpc:app.bsky.graph.unmuteActor?aud=${APPVIEW_AUDIENCE}`,
 ]
+const POST_ACTION_SCOPES = [
+  'repo:app.bsky.feed.like',
+  'repo:app.bsky.feed.repost',
+]
 const SCOPE = [
   'atproto',
   `rpc:app.bsky.feed.getTimeline?aud=${APPVIEW_AUDIENCE}`,
   ...SEARCH_SCOPES,
   ...GRAPH_SCOPES,
+  ...POST_ACTION_SCOPES,
 ].join(' ')
 const THEME_STORAGE_KEY = 'osky-theme'
 const RECENT_BLOCKS_STORAGE_KEY = 'osky-recent-blocks'
@@ -41,12 +46,24 @@ type ProfileFeedMode = 'posts' | 'replies' | 'both'
 type ThemePreference = 'light' | 'dark' | 'system'
 type EngagementKind = 'reposts' | 'likes'
 type OpenEngagement = (kind: EngagementKind, post: AppBskyFeedDefs.PostView) => void
+type PostActions = {
+  enabled: boolean
+  toggleLike: (
+    post: AppBskyFeedDefs.PostView,
+    likeUri?: string,
+  ) => Promise<string | undefined>
+  toggleRepost: (
+    post: AppBskyFeedDefs.PostView,
+    repostUri?: string,
+  ) => Promise<string | undefined>
+}
 type BulkBlockResult = {
   blockedDids: string[]
   failedDids: string[]
 }
 
 const EngagementContext = createContext<OpenEngagement | null>(null)
+const PostActionsContext = createContext<PostActions | null>(null)
 
 function storedThemePreference(): ThemePreference {
   const stored = window.localStorage.getItem(THEME_STORAGE_KEY)
@@ -514,7 +531,54 @@ function PostCard({
 }) {
   const record = AppBskyFeedPost.isRecord(post.record) ? post.record : null
   const openEngagement = useContext(EngagementContext)
-  const repostCount = (post.repostCount ?? 0) + (post.quoteCount ?? 0)
+  const postActions = useContext(PostActionsContext)
+  const [likeUri, setLikeUri] = useState(post.viewer?.like)
+  const [repostUri, setRepostUri] = useState(post.viewer?.repost)
+  const [likeCount, setLikeCount] = useState(post.likeCount ?? 0)
+  const [repostCount, setRepostCount] = useState(
+    (post.repostCount ?? 0) + (post.quoteCount ?? 0),
+  )
+  const [likeBusy, setLikeBusy] = useState(false)
+  const [repostBusy, setRepostBusy] = useState(false)
+  const [actionError, setActionError] = useState('')
+
+  async function toggleLike() {
+    if (!postActions?.enabled || likeBusy) return
+    const previousUri = likeUri
+    const previousCount = likeCount
+    setLikeBusy(true)
+    setActionError('')
+    setLikeUri(previousUri ? undefined : 'pending')
+    setLikeCount(Math.max(0, previousCount + (previousUri ? -1 : 1)))
+    try {
+      setLikeUri(await postActions.toggleLike(post, previousUri))
+    } catch (cause) {
+      setLikeUri(previousUri)
+      setLikeCount(previousCount)
+      setActionError(cause instanceof Error ? cause.message : 'Could not update this like.')
+    } finally {
+      setLikeBusy(false)
+    }
+  }
+
+  async function toggleRepost() {
+    if (!postActions?.enabled || repostBusy) return
+    const previousUri = repostUri
+    const previousCount = repostCount
+    setRepostBusy(true)
+    setActionError('')
+    setRepostUri(previousUri ? undefined : 'pending')
+    setRepostCount(Math.max(0, previousCount + (previousUri ? -1 : 1)))
+    try {
+      setRepostUri(await postActions.toggleRepost(post, previousUri))
+    } catch (cause) {
+      setRepostUri(previousUri)
+      setRepostCount(previousCount)
+      setActionError(cause instanceof Error ? cause.message : 'Could not update this repost.')
+    } finally {
+      setRepostBusy(false)
+    }
+  }
 
   return (
     <article className={`post${nested ? ' nested-post' : ''}`}>
@@ -564,23 +628,68 @@ function PostCard({
             ) : (
               <span>{post.replyCount ?? 0} replies</span>
             )}
-            <span aria-hidden="true">·</span>
-            {openEngagement && repostCount > 0 ? (
-              <button type="button" onClick={() => openEngagement('reposts', post)}>
-                {repostCount} reposts
-              </button>
-            ) : (
-              <span>{repostCount} reposts</span>
-            )}
-            <span aria-hidden="true">·</span>
-            {openEngagement && (post.likeCount ?? 0) > 0 ? (
-              <button type="button" onClick={() => openEngagement('likes', post)}>
-                {post.likeCount ?? 0} likes
-              </button>
-            ) : (
-              <span>{post.likeCount ?? 0} likes</span>
-            )}
           </div>
+          <div className="post-actions" aria-label="Post actions">
+            <div className="post-action-group">
+              <button
+                type="button"
+                className={`post-action-button repost-action${repostUri ? ' active' : ''}`}
+                onClick={() => void toggleRepost()}
+                disabled={!postActions?.enabled || repostBusy}
+                aria-label={repostUri ? 'Undo repost' : 'Repost'}
+                aria-pressed={Boolean(repostUri)}
+                title={postActions?.enabled
+                  ? repostUri ? 'Undo repost' : 'Repost'
+                  : 'Reconnect osky to enable reposts'}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M7 7h10l-2.75-2.75M17 7l-2.75 2.75M17 17H7l2.75 2.75M7 17l2.75-2.75" />
+                </svg>
+              </button>
+              {openEngagement && repostCount > 0 ? (
+                <button
+                  type="button"
+                  className="post-action-count"
+                  onClick={() => openEngagement('reposts', post)}
+                  aria-label={`View ${repostCount} repost${repostCount === 1 ? '' : 's'}`}
+                >
+                  {repostCount}
+                </button>
+              ) : (
+                <span className="post-action-count">{repostCount}</span>
+              )}
+            </div>
+            <div className="post-action-group">
+              <button
+                type="button"
+                className={`post-action-button like-action${likeUri ? ' active' : ''}`}
+                onClick={() => void toggleLike()}
+                disabled={!postActions?.enabled || likeBusy}
+                aria-label={likeUri ? 'Unlike' : 'Like'}
+                aria-pressed={Boolean(likeUri)}
+                title={postActions?.enabled
+                  ? likeUri ? 'Unlike' : 'Like'
+                  : 'Reconnect osky to enable likes'}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M20.8 4.6a5.45 5.45 0 0 0-7.7 0L12 5.7l-1.1-1.1a5.45 5.45 0 0 0-7.7 7.7L12 21l8.8-8.7a5.45 5.45 0 0 0 0-7.7Z" />
+                </svg>
+              </button>
+              {openEngagement && likeCount > 0 ? (
+                <button
+                  type="button"
+                  className="post-action-count"
+                  onClick={() => openEngagement('likes', post)}
+                  aria-label={`View ${likeCount} like${likeCount === 1 ? '' : 's'}`}
+                >
+                  {likeCount}
+                </button>
+              ) : (
+                <span className="post-action-count">{likeCount}</span>
+              )}
+            </div>
+          </div>
+          {actionError && <p className="post-action-error" role="alert">{actionError}</p>}
         </div>
       </div>
     </article>
@@ -1305,6 +1414,7 @@ export default function App() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState('')
   const [canSearch, setCanSearch] = useState(false)
+  const [canPostActions, setCanPostActions] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [submittedSearch, setSubmittedSearch] = useState('')
   const [searching, setSearching] = useState(false)
@@ -1487,6 +1597,32 @@ export default function App() {
     rememberBlockedDids(blockedDids)
     return { blockedDids, failedDids }
   }, [rememberBlockedDids])
+
+  const toggleLike = useCallback(async (
+    post: AppBskyFeedDefs.PostView,
+    likeUri?: string,
+  ) => {
+    const agent = agentRef.current
+    if (!agent) throw new Error('You must be signed in to like posts.')
+    if (likeUri) {
+      await agent.deleteLike(likeUri)
+      return undefined
+    }
+    return (await agent.like(post.uri, post.cid)).uri
+  }, [])
+
+  const toggleRepost = useCallback(async (
+    post: AppBskyFeedDefs.PostView,
+    repostUri?: string,
+  ) => {
+    const agent = agentRef.current
+    if (!agent) throw new Error('You must be signed in to repost posts.')
+    if (repostUri) {
+      await agent.deleteRepost(repostUri)
+      return undefined
+    }
+    return (await agent.repost(post.uri, post.cid)).uri
+  }, [])
 
   const openThread = useCallback(async (post: AppBskyFeedDefs.PostView) => {
     engagementRequestRef.current += 1
@@ -1767,6 +1903,7 @@ export default function App() {
         const tokenInfo = await result.session.getTokenInfo()
         const grantedScopes = new Set(tokenInfo.scope.split(' '))
         setCanSearch(SEARCH_SCOPES.every((scope) => grantedScopes.has(scope)))
+        setCanPostActions(POST_ACTION_SCOPES.every((scope) => grantedScopes.has(scope)))
         const session = await agent.com.atproto.server.getSession()
         if (cancelled) return
 
@@ -1932,6 +2069,11 @@ export default function App() {
 
       {status === 'signed-in' && (
         <EngagementContext.Provider value={openEngagement}>
+        <PostActionsContext.Provider value={{
+          enabled: canPostActions,
+          toggleLike,
+          toggleRepost,
+        }}>
         <div className="signed-in-layout">
           <aside className="left-sidebar" aria-label="osky navigation">
             <div className="left-sidebar-sticky">
@@ -2227,6 +2369,15 @@ export default function App() {
                   </div>
                 )}
 
+                {!canPostActions && (
+                  <div className="permission-note">
+                    <span>Likes and reposts need two additional permissions.</span>
+                    <button onClick={() => authorize(signedInHandle)} disabled={busy}>
+                      {busy ? 'Connecting…' : 'Enable actions'}
+                    </button>
+                  </div>
+                )}
+
                 {engagementPanel ? (
                   <EngagementPanel
                     key={`${engagementPanel.kind}-${engagementPanel.post.uri}`}
@@ -2302,6 +2453,7 @@ export default function App() {
             </div>
           )}
         </div>
+        </PostActionsContext.Provider>
         </EngagementContext.Provider>
       )}
     </main>

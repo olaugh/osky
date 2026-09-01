@@ -3,7 +3,7 @@
   "client_name": "osky",
   "client_uri": "https://olaugh.github.io/osky/",
   "redirect_uris": ["https://olaugh.github.io/osky/"],
-  "scope": "atproto rpc:app.bsky.feed.getTimeline?aud=did:web:api.bsky.app#bsky_appview rpc:app.bsky.actor.searchActors?aud=did:web:api.bsky.app#bsky_appview rpc:app.bsky.feed.searchPosts?aud=did:web:api.bsky.app#bsky_appview repo:app.bsky.graph.block repo:app.bsky.graph.follow rpc:app.bsky.graph.muteActor?aud=did:web:api.bsky.app#bsky_appview rpc:app.bsky.graph.unmuteActor?aud=did:web:api.bsky.app#bsky_appview",
+  "scope": "atproto rpc:app.bsky.feed.getTimeline?aud=did:web:api.bsky.app#bsky_appview rpc:app.bsky.actor.searchActors?aud=did:web:api.bsky.app#bsky_appview rpc:app.bsky.feed.searchPosts?aud=did:web:api.bsky.app#bsky_appview repo:app.bsky.graph.block repo:app.bsky.graph.follow rpc:app.bsky.graph.muteActor?aud=did:web:api.bsky.app#bsky_appview rpc:app.bsky.graph.unmuteActor?aud=did:web:api.bsky.app#bsky_appview repo:app.bsky.feed.like repo:app.bsky.feed.repost",
   "grant_types": ["authorization_code", "refresh_token"],
   "response_types": ["code"],
   "token_endpoint_auth_method": "none",

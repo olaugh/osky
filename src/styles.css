@@ -1353,6 +1353,93 @@ h1 {
   text-decoration: underline;
 }
 
+.post-actions {
+  min-height: 32px;
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 26px;
+  color: var(--color-muted);
+}
+
+.post-action-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.post-action-button,
+.post-action-count {
+  border: 0;
+  color: inherit;
+  background: transparent;
+}
+
+.post-action-button {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  padding: 6px;
+  border-radius: 50%;
+}
+
+.post-action-button svg {
+  width: 19px;
+  height: 19px;
+  overflow: visible;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.9;
+}
+
+.post-action-button:hover:not(:disabled),
+.post-action-button:focus-visible {
+  color: var(--color-accent);
+  background: var(--color-accent-soft-28);
+  outline: none;
+}
+
+.post-action-button:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.post-action-button.active.repost-action {
+  color: var(--color-accent);
+}
+
+.post-action-button.active.like-action {
+  color: var(--color-danger);
+}
+
+.post-action-button.active.like-action svg {
+  fill: currentColor;
+}
+
+.post-action-count {
+  min-width: 16px;
+  padding: 2px;
+  font-size: 12px;
+  line-height: 1;
+  text-align: left;
+}
+
+button.post-action-count:hover,
+button.post-action-count:focus-visible {
+  color: var(--color-accent);
+  text-decoration: underline;
+  outline: none;
+}
+
+.post-action-error {
+  margin: 2px 0 0;
+  color: var(--color-danger);
+  font-size: 12px;
+}
+
 .scroll-top-button {
   width: 40px;
   height: 40px;
