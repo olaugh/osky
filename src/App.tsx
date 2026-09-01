@@ -26,6 +26,8 @@ const SCOPE = [
 ].join(' ')
 const publicAgent = new Agent('https://public.api.bsky.app')
 
+type ProfileFeedMode = 'posts' | 'replies' | 'both'
+
 function profileHref(actor: string) {
   return `#/profile/${encodeURIComponent(actor)}`
 }
@@ -654,12 +656,20 @@ function ProfilePage({
   feed,
   loading,
   error,
+  feedMode,
+  feedLoading,
+  feedError,
+  onFeedModeChange,
   onOpenThread,
 }: {
   profile: AppBskyActorDefs.ProfileViewDetailed | null
   feed: AppBskyFeedDefs.FeedViewPost[]
   loading: boolean
   error: string
+  feedMode: ProfileFeedMode
+  feedLoading: boolean
+  feedError: string
+  onFeedModeChange: (mode: ProfileFeedMode) => void
   onOpenThread: (post: AppBskyFeedDefs.PostView) => void
 }) {
   if (loading) {
@@ -736,10 +746,31 @@ function ProfilePage({
             </div>
           </dl>
         </div>
+        <div className="profile-feed-tabs" role="tablist" aria-label="Profile posts">
+          {(['posts', 'replies', 'both'] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              role="tab"
+              aria-selected={feedMode === mode}
+              className={feedMode === mode ? 'active' : undefined}
+              onClick={() => onFeedModeChange(mode)}
+            >
+              {mode === 'posts' ? 'Posts' : mode === 'replies' ? 'Replies' : 'Both'}
+            </button>
+          ))}
+        </div>
       </section>
 
-      <section className="profile-posts" aria-label="Posts">
-        {feed.length > 0 ? (
+      <section className="profile-posts" aria-label={`${feedMode} by this account`}>
+        {feedLoading ? (
+          <div className="profile-feed-loading" aria-live="polite">
+            <div className="spinner spinner-small" />
+            <span>Loading {feedMode}…</span>
+          </div>
+        ) : feedError ? (
+          <p className="error">{feedError}</p>
+        ) : feed.length > 0 ? (
           <div className="feed" aria-live="polite">
             {feed.map((item, index) => (
               <FeedPost
@@ -750,7 +781,7 @@ function ProfilePage({
             ))}
           </div>
         ) : (
-          <p className="empty-results">No recent skeets.</p>
+          <p className="empty-results">No recent {feedMode}.</p>
         )}
       </section>
     </div>
@@ -788,6 +819,9 @@ export default function App() {
   const [profileFeed, setProfileFeed] = useState<AppBskyFeedDefs.FeedViewPost[]>([])
   const [profileLoading, setProfileLoading] = useState(false)
   const [profileError, setProfileError] = useState('')
+  const [profileFeedMode, setProfileFeedMode] = useState<ProfileFeedMode>('posts')
+  const [profileFeedLoading, setProfileFeedLoading] = useState(false)
+  const [profileFeedError, setProfileFeedError] = useState('')
   const [selectedThreadPost, setSelectedThreadPost] = useState<AppBskyFeedDefs.PostView | null>(null)
   const [thread, setThread] = useState<AppBskyFeedDefs.ThreadViewPost | null>(null)
   const [threadLoading, setThreadLoading] = useState(false)
@@ -883,6 +917,7 @@ export default function App() {
   useEffect(() => {
     const syncRoute = () => {
       setProfileActor(profileActorFromHash())
+      setProfileFeedMode('posts')
       window.scrollTo({ top: 0 })
     }
 
@@ -895,22 +930,16 @@ export default function App() {
 
     let cancelled = false
     setProfile(null)
-    setProfileFeed([])
     setProfileError('')
     setProfileLoading(true)
 
     async function loadProfile() {
       try {
-        const [profileResponse, feedResponse] = await Promise.all([
-          publicAgent.app.bsky.actor.getProfile({ actor: profileActor as string }),
-          publicAgent.app.bsky.feed.getAuthorFeed({
-            actor: profileActor as string,
-            limit: 30,
-          }),
-        ])
+        const profileResponse = await publicAgent.app.bsky.actor.getProfile({
+          actor: profileActor as string,
+        })
         if (cancelled) return
         setProfile(profileResponse.data)
-        setProfileFeed(feedResponse.data.feed)
       } catch (cause) {
         if (!cancelled) {
           setProfileError(
@@ -927,6 +956,49 @@ export default function App() {
       cancelled = true
     }
   }, [profileActor])
+
+  useEffect(() => {
+    if (!profileActor) return
+
+    let cancelled = false
+    setProfileFeed([])
+    setProfileFeedError('')
+    setProfileFeedLoading(true)
+
+    async function loadProfileFeed() {
+      try {
+        const response = await publicAgent.app.bsky.feed.getAuthorFeed({
+          actor: profileActor as string,
+          filter: profileFeedMode === 'posts' ? 'posts_no_replies' : 'posts_with_replies',
+          limit: profileFeedMode === 'replies' ? 100 : 30,
+        })
+        if (cancelled) return
+
+        const nextFeed = profileFeedMode === 'replies'
+          ? response.data.feed.filter((item) => {
+              const record = AppBskyFeedPost.isRecord(item.post.record)
+                ? item.post.record
+                : null
+              return Boolean(record?.reply)
+            }).slice(0, 30)
+          : response.data.feed
+        setProfileFeed(nextFeed)
+      } catch (cause) {
+        if (!cancelled) {
+          setProfileFeedError(
+            cause instanceof Error ? cause.message : 'Could not load these posts.',
+          )
+        }
+      } finally {
+        if (!cancelled) setProfileFeedLoading(false)
+      }
+    }
+
+    void loadProfileFeed()
+    return () => {
+      cancelled = true
+    }
+  }, [profileActor, profileFeedMode])
 
   useEffect(() => {
     if (status !== 'signed-in') return
@@ -1173,6 +1245,10 @@ export default function App() {
               feed={profileFeed}
               loading={profileLoading}
               error={profileError}
+              feedMode={profileFeedMode}
+              feedLoading={profileFeedLoading}
+              feedError={profileFeedError}
+              onFeedModeChange={setProfileFeedMode}
               onOpenThread={openThread}
             />
           ) : submittedSearch ? (
