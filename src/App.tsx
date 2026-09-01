@@ -20,10 +20,17 @@ const SEARCH_SCOPES = [
   `rpc:app.bsky.actor.searchActors?aud=${APPVIEW_AUDIENCE}`,
   `rpc:app.bsky.feed.searchPosts?aud=${APPVIEW_AUDIENCE}`,
 ]
+const GRAPH_SCOPES = [
+  'repo:app.bsky.graph.block',
+  'repo:app.bsky.graph.follow',
+  `rpc:app.bsky.graph.muteActor?aud=${APPVIEW_AUDIENCE}`,
+  `rpc:app.bsky.graph.unmuteActor?aud=${APPVIEW_AUDIENCE}`,
+]
 const SCOPE = [
   'atproto',
   `rpc:app.bsky.feed.getTimeline?aud=${APPVIEW_AUDIENCE}`,
   ...SEARCH_SCOPES,
+  ...GRAPH_SCOPES,
 ].join(' ')
 const publicAgent = new Agent('https://public.api.bsky.app')
 
