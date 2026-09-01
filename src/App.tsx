@@ -620,6 +620,17 @@ function flattenReplies(thread: AppBskyFeedDefs.ThreadViewPost) {
   return replies
 }
 
+function flattenParents(thread: AppBskyFeedDefs.ThreadViewPost) {
+  const parents: AppBskyFeedDefs.PostView[] = []
+  let parent = thread.parent
+  while (parent && AppBskyFeedDefs.isThreadViewPost(parent)) {
+    const parentThread = parent as AppBskyFeedDefs.ThreadViewPost
+    parents.unshift(parentThread.post)
+    parent = parentThread.parent
+  }
+  return parents
+}
+
 function ThreadPanel({
   selected,
   thread,
@@ -636,6 +647,8 @@ function ThreadPanel({
   onOpenThread: (post: AppBskyFeedDefs.PostView) => void
 }) {
   const replies = thread ? flattenReplies(thread) : []
+  const parents = thread ? flattenParents(thread) : []
+  const conversationPost = thread?.post ?? selected
 
   return (
     <section
@@ -659,11 +672,22 @@ function ThreadPanel({
         <p className="trends-message">{error}</p>
       ) : (
         <div className="thread-panel-posts">
-          <PostCard post={thread?.post ?? selected} nested onOpenThread={onOpenThread} />
+          <div className="thread-parent-chain">
+            {parents.map((parent) => (
+              <div className="thread-context-post" key={parent.uri}>
+                <PostCard post={parent} nested onOpenThread={onOpenThread} />
+              </div>
+            ))}
+            <div className="thread-context-post thread-selected-post">
+              <PostCard post={conversationPost} nested onOpenThread={onOpenThread} />
+            </div>
+          </div>
           {replies.length > 0 ? (
-            replies.map((reply) => (
-              <PostCard key={reply.uri} post={reply} nested onOpenThread={onOpenThread} />
-            ))
+            <div className="thread-descendants">
+              {replies.map((reply) => (
+                <PostCard key={reply.uri} post={reply} nested onOpenThread={onOpenThread} />
+              ))}
+            </div>
           ) : (
             <p className="trends-message">No visible replies.</p>
           )}
@@ -878,7 +902,7 @@ export default function App() {
       const response = await publicAgent.app.bsky.feed.getPostThread({
         uri: post.uri,
         depth: 1000,
-        parentHeight: 0,
+        parentHeight: 100,
       })
       if (!AppBskyFeedDefs.isThreadViewPost(response.data.thread)) {
         throw new Error('This conversation is unavailable.')
@@ -1484,6 +1508,7 @@ export default function App() {
 
                 {selectedThreadPost ? (
                   <ThreadPanel
+                    key={selectedThreadPost.uri}
                     selected={selectedThreadPost}
                     thread={thread}
                     loading={threadLoading}

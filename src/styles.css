@@ -1050,6 +1050,34 @@ h1 {
   padding: 16px 14px;
 }
 
+.thread-context-post {
+  position: relative;
+  border-bottom: 1px solid rgba(23, 34, 27, 0.1);
+}
+
+.thread-context-post .post {
+  border-bottom: 0;
+}
+
+.thread-context-post:not(:last-child)::after {
+  position: absolute;
+  z-index: 1;
+  top: 57px;
+  bottom: -18px;
+  left: 32px;
+  border-left: 2px solid #b8c5ba;
+  content: "";
+  pointer-events: none;
+}
+
+.thread-selected-post {
+  background: rgba(228, 236, 223, 0.34);
+}
+
+.thread-descendants > .post:last-child {
+  border-bottom: 0;
+}
+
 .thread-panel-posts .post-grid {
   grid-template-columns: 38px minmax(0, 1fr);
   gap: 10px;
