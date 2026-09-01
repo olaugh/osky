@@ -763,7 +763,7 @@ function ProfilePage({
         <a className="profile-back" href="#" aria-label="Back">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path
-              d="m15 18-6-6 6-6M9 12h11"
+              d="M19 12H5m7-7-7 7 7 7"
               fill="none"
               stroke="currentColor"
               strokeLinecap="round"
