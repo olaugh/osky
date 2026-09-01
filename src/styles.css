@@ -1188,15 +1188,19 @@ h1 {
 }
 
 .profile-summary {
-  padding: 0 28px 28px;
+  padding: 22px 28px 28px;
 }
 
 .profile-avatar {
+  position: absolute;
+  z-index: 1;
+  top: 88px;
+  left: 28px;
   width: 104px;
   height: 104px;
   display: grid;
   place-items: center;
-  margin: -54px 0 18px;
+  margin: 0;
   border: 5px solid #fbf8ef;
   border-radius: 50%;
   object-fit: cover;
@@ -1210,7 +1214,11 @@ h1 {
 }
 
 .profile-summary h1 {
-  font-size: clamp(36px, 7vw, 54px);
+  font-family: inherit;
+  font-size: clamp(26px, 3vw, 34px);
+  font-weight: 750;
+  letter-spacing: -0.025em;
+  line-height: 1.12;
   overflow-wrap: anywhere;
 }
 
@@ -1461,13 +1469,14 @@ h1 {
   }
 
   .profile-summary {
-    padding: 0 18px 22px;
+    padding: 18px 18px 22px;
   }
 
   .profile-avatar {
+    top: 46px;
+    left: 18px;
     width: 88px;
     height: 88px;
-    margin-top: -46px;
   }
 
   .repost {
