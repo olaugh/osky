@@ -284,6 +284,30 @@ h1 {
   line-height: 1.45;
 }
 
+.auth-recovery {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.auth-recovery button {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  border: 1px solid rgba(123, 38, 28, 0.28);
+  border-radius: 8px;
+  color: #7b261c;
+  background: rgba(255, 253, 247, 0.72);
+  font: inherit;
+  font-weight: 700;
+}
+
+.auth-recovery button:hover:not(:disabled),
+.auth-recovery button:focus-visible {
+  outline: none;
+  background: #fffdf7;
+}
+
 .left-nav {
   width: 100%;
   display: grid;

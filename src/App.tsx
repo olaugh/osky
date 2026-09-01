@@ -79,6 +79,10 @@ function settingsFromHash() {
   return window.location.hash === '#/settings'
 }
 
+function isDpopKeyBindingError(message: string) {
+  return message.toLowerCase().includes('invalid dpop key binding')
+}
+
 function clientId() {
   const isLocal = ['localhost', '127.0.0.1'].includes(window.location.hostname)
 
@@ -1659,6 +1663,18 @@ export default function App() {
     }
   }
 
+  async function repairSignIn() {
+    setBusy(true)
+    setError('')
+    try {
+      if (oauthRef.current && didRef.current) {
+        await oauthRef.current.revoke(didRef.current)
+      }
+    } finally {
+      window.location.replace(`${window.location.origin}${window.location.pathname}`)
+    }
+  }
+
   return (
     <main className={`shell ${status === 'signed-in' ? 'shell-signed-in' : ''}`}>
       {status !== 'signed-in' && (
@@ -1770,7 +1786,18 @@ export default function App() {
           <section className="timeline">
           <div className="app-layout">
             <div className="primary-pane">
-              {error && <p className="error feed-error">{error}</p>}
+              {error && (
+                isDpopKeyBindingError(error) ? (
+                  <div className="error feed-error auth-recovery" role="alert">
+                    <span>Your Bluesky sign-in has expired or become disconnected.</span>
+                    <button type="button" onClick={repairSignIn} disabled={busy}>
+                      {busy ? 'Reconnecting…' : 'Reconnect'}
+                    </button>
+                  </div>
+                ) : (
+                  <p className="error feed-error">{error}</p>
+                )
+              )}
 
           {settingsOpen ? (
             <SettingsPage signedInHandle={signedInHandle} />
