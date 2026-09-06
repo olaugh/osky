@@ -495,6 +495,30 @@ h1 {
   stroke-width: 1.8;
 }
 
+.block-queue-nav {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 9px;
+  border: 1px solid var(--color-border-14);
+  border-radius: 9px;
+  color: var(--color-copy-muted);
+  background: var(--color-card-72);
+  font-size: 11px;
+  text-decoration: none;
+}
+
+.block-queue-nav:hover {
+  color: var(--color-accent);
+  border-color: var(--color-accent-20);
+}
+
+.block-queue-nav strong {
+  color: var(--color-accent);
+}
+
 .spinner {
   width: 28px;
   height: 28px;
@@ -893,6 +917,55 @@ h1 {
   color: var(--color-muted-strong);
   font-size: 14px;
   line-height: 1.55;
+}
+
+.block-queue-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.block-queue-heading h2 {
+  margin-bottom: 3px;
+}
+
+.block-queue-heading strong {
+  flex: 0 0 auto;
+  color: var(--color-accent);
+  font-size: 13px;
+}
+
+.settings-card .block-queue-totals,
+.settings-card .block-queue-error {
+  margin-top: 12px;
+}
+
+.settings-card .block-queue-error {
+  color: var(--color-danger);
+}
+
+.block-queue-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.block-queue-actions button {
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid var(--color-accent-20);
+  border-radius: 9px;
+  color: var(--color-button-text);
+  background: var(--color-accent);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.block-queue-actions .secondary-button {
+  color: var(--color-copy-muted);
+  background: transparent;
 }
 
 .theme-options {
@@ -1701,7 +1774,8 @@ button.post-action-count:focus-visible {
   white-space: nowrap;
 }
 
-.engagement-actor-meta .blocked-badge {
+.engagement-actor-meta .blocked-badge,
+.engagement-actor-meta .queued-badge {
   flex: 0 0 auto;
   padding: 2px 6px;
   border: 1px solid var(--color-danger-border);
@@ -1711,6 +1785,12 @@ button.post-action-count:focus-visible {
   font-size: 10px;
   font-weight: 750;
   line-height: 1.2;
+}
+
+.engagement-actor-meta .queued-badge {
+  border-color: var(--color-accent-20);
+  color: var(--color-accent);
+  background: var(--color-accent-soft-42);
 }
 
 .engagement-section-label {
@@ -1888,6 +1968,16 @@ button.post-action-count:focus-visible {
   border-radius: 999px;
   color: var(--color-danger);
   background: var(--color-danger-surface);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.profile-queued-badge {
+  padding: 6px 10px;
+  border: 1px solid var(--color-accent-20);
+  border-radius: 999px;
+  color: var(--color-accent);
+  background: var(--color-accent-soft-42);
   font-size: 12px;
   font-weight: 750;
 }

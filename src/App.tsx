@@ -40,6 +40,14 @@ const SCOPE = [
 const THEME_STORAGE_KEY = 'osky-theme'
 const RECENT_BLOCKS_STORAGE_KEY = 'osky-recent-blocks'
 const RECENT_BLOCK_TTL_MS = 10 * 60 * 1000
+const BLOCK_QUEUE_STORAGE_KEY = 'osky-block-queue'
+const BLOCK_INTERVAL_MS = 3_000
+const BLOCKS_PER_HOUR = 1_200
+const BLOCKS_PER_DAY = 10_000
+const RATE_LIMIT_PAUSE_MS = 60 * 60 * 1000
+const RETRY_PAUSE_MS = 60 * 1000
+const HOUR_MS = 60 * 60 * 1000
+const DAY_MS = 24 * HOUR_MS
 const publicAgent = new Agent('https://public.api.bsky.app')
 
 type ProfileFeedMode = 'posts' | 'replies' | 'both'
@@ -58,10 +66,22 @@ type PostActions = {
   ) => Promise<string | undefined>
 }
 type BulkBlockResult = {
-  blockedDids: string[]
-  failedDids: string[]
-  unattemptedDids: string[]
-  failureMessage?: string
+  queuedDids: string[]
+  alreadyQueuedDids: string[]
+}
+type BlockQueueItem = {
+  did: string
+  attempts: number
+}
+type BlockQueueState = {
+  ownerDid: string
+  pending: BlockQueueItem[]
+  writeTimestamps: number[]
+  completedCount: number
+  failedCount: number
+  pausedUntil: number
+  userPaused: boolean
+  lastError: string
 }
 
 const EngagementContext = createContext<OpenEngagement | null>(null)
@@ -100,6 +120,65 @@ function storedRecentBlocks() {
   }
 }
 
+function emptyBlockQueue(ownerDid = ''): BlockQueueState {
+  return {
+    ownerDid,
+    pending: [],
+    writeTimestamps: [],
+    completedCount: 0,
+    failedCount: 0,
+    pausedUntil: 0,
+    userPaused: false,
+    lastError: '',
+  }
+}
+
+function storedBlockQueue(): BlockQueueState {
+  try {
+    const stored = JSON.parse(
+      window.localStorage.getItem(BLOCK_QUEUE_STORAGE_KEY) ?? 'null',
+    ) as Partial<BlockQueueState> | null
+    if (!stored || typeof stored.ownerDid !== 'string') return emptyBlockQueue()
+    return {
+      ownerDid: stored.ownerDid,
+      pending: Array.isArray(stored.pending)
+        ? stored.pending.filter((item): item is BlockQueueItem => (
+            Boolean(item) &&
+            typeof item.did === 'string' &&
+            typeof item.attempts === 'number'
+          ))
+        : [],
+      writeTimestamps: Array.isArray(stored.writeTimestamps)
+        ? stored.writeTimestamps.filter((value): value is number => (
+            typeof value === 'number' && value > Date.now() - DAY_MS
+          ))
+        : [],
+      completedCount: typeof stored.completedCount === 'number' ? stored.completedCount : 0,
+      failedCount: typeof stored.failedCount === 'number' ? stored.failedCount : 0,
+      pausedUntil: typeof stored.pausedUntil === 'number' ? stored.pausedUntil : 0,
+      userPaused: stored.userPaused === true,
+      lastError: typeof stored.lastError === 'string' ? stored.lastError : '',
+    }
+  } catch {
+    return emptyBlockQueue()
+  }
+}
+
+function nextBlockAt(queue: BlockQueueState, now = Date.now()) {
+  const writes = queue.writeTimestamps.filter((timestamp) => timestamp > now - DAY_MS)
+  const hourlyWrites = writes.filter((timestamp) => timestamp > now - HOUR_MS)
+  let nextAt = Math.max(now, queue.pausedUntil)
+  const lastWrite = writes.at(-1)
+  if (lastWrite) nextAt = Math.max(nextAt, lastWrite + BLOCK_INTERVAL_MS)
+  if (hourlyWrites.length >= BLOCKS_PER_HOUR) {
+    nextAt = Math.max(nextAt, hourlyWrites[hourlyWrites.length - BLOCKS_PER_HOUR] + HOUR_MS)
+  }
+  if (writes.length >= BLOCKS_PER_DAY) {
+    nextAt = Math.max(nextAt, writes[writes.length - BLOCKS_PER_DAY] + DAY_MS)
+  }
+  return nextAt
+}
+
 async function getRelationships(
   actor: string,
   others: string[],
@@ -130,17 +209,44 @@ function readableError(cause: unknown, fallback: string) {
   return fallback
 }
 
-function shouldStopBulkAction(cause: unknown, consecutiveFailures: number) {
+function isRateLimitError(cause: unknown) {
   const message = readableError(cause, '').toLowerCase()
-  return consecutiveFailures >= 3 || [
-    '429',
-    'rate limit',
-    'dpop',
-    'session',
-    'token',
-    'auth',
-    'permission',
-  ].some((part) => message.includes(part))
+  const status = cause && typeof cause === 'object' && 'status' in cause
+    ? cause.status
+    : undefined
+  return status === 429 || message.includes('429') || message.includes('rate limit')
+}
+
+function isAuthenticationError(cause: unknown) {
+  const message = readableError(cause, '').toLowerCase()
+  return ['dpop', 'session', 'token', 'auth', 'permission'].some(
+    (part) => message.includes(part),
+  )
+}
+
+function rateLimitResetAt(cause: unknown, now = Date.now()) {
+  if (!cause || typeof cause !== 'object' || !('headers' in cause)) return null
+  const headers = cause.headers
+  if (!headers || typeof headers !== 'object') return null
+  const entries = Object.entries(headers as Record<string, unknown>)
+  const header = (name: string) => {
+    const entry = entries.find(([key]) => key.toLowerCase() === name)
+    return typeof entry?.[1] === 'string' ? entry[1].trim() : ''
+  }
+
+  const retryAfter = header('retry-after')
+  if (retryAfter) {
+    const seconds = Number(retryAfter)
+    if (Number.isFinite(seconds) && seconds >= 0) return now + seconds * 1000
+    const date = Date.parse(retryAfter)
+    if (Number.isFinite(date)) return date
+  }
+
+  const reset = header('ratelimit-reset') || header('x-ratelimit-reset')
+  if (!reset) return null
+  const value = Number(reset)
+  if (!Number.isFinite(value) || value < 0) return null
+  return value > 1_000_000_000 ? value * 1000 : now + value * 1000
 }
 
 function profileHref(actor: string) {
@@ -978,9 +1084,11 @@ function AccountCard({ profile }: { profile: AppBskyActorDefs.ProfileView }) {
 function EngagementActorRow({
   profile,
   blocked = false,
+  queued = false,
 }: {
   profile: AppBskyActorDefs.ProfileView
   blocked?: boolean
+  queued?: boolean
 }) {
   return (
     <a className="engagement-actor" href={profileHref(profile.handle)}>
@@ -996,6 +1104,7 @@ function EngagementActorRow({
         <span className="engagement-actor-meta">
           <span>@{profile.handle}</span>
           {blocked && <span className="blocked-badge">Blocked</span>}
+          {!blocked && queued && <span className="queued-badge">Queued</span>}
         </span>
       </span>
     </a>
@@ -1012,6 +1121,7 @@ function EngagementPanel({
   error,
   currentDid,
   blockedDids,
+  queuedDids,
   onClose,
   onOpenThread,
   onBlockActors,
@@ -1025,47 +1135,38 @@ function EngagementPanel({
   error: string
   currentDid: string
   blockedDids: string[]
+  queuedDids: string[]
   onClose: () => void
   onOpenThread: (post: AppBskyFeedDefs.PostView) => void
-  onBlockActors: (
-    actors: AppBskyActorDefs.ProfileView[],
-    onProgress?: (completed: number, total: number) => void,
-  ) => Promise<BulkBlockResult>
+  onBlockActors: (actors: AppBskyActorDefs.ProfileView[]) => Promise<BulkBlockResult>
 }) {
   const record = AppBskyFeedPost.isRecord(post.record) ? post.record : null
   const title = kind === 'likes' ? 'Likes' : 'Reposts'
   const [confirmingBlock, setConfirmingBlock] = useState(false)
   const [blocking, setBlocking] = useState(false)
-  const [blockProgress, setBlockProgress] = useState({ completed: 0, total: 0 })
   const [blockMessage, setBlockMessage] = useState('')
+  const queuedDidSet = new Set(queuedDids)
   const blockableActors = kind === 'likes'
     ? actors.filter((actor) => (
         actor.did !== currentDid &&
         !actor.viewer?.blocking &&
-        !blockedDids.includes(actor.did)
+        !blockedDids.includes(actor.did) &&
+        !queuedDidSet.has(actor.did)
       ))
     : []
   const skippedActorCount = kind === 'likes' ? actors.length - blockableActors.length : 0
 
   async function blockAllShown() {
     setBlocking(true)
-    setBlockProgress({ completed: 0, total: blockableActors.length })
     setBlockMessage('')
     try {
-      const result = await onBlockActors(
-        blockableActors,
-        (completed, total) => setBlockProgress({ completed, total }),
+      const result = await onBlockActors(blockableActors)
+      const queued = result.queuedDids.length
+      const alreadyQueued = result.alreadyQueuedDids.length
+      setBlockMessage(
+        `${queued.toLocaleString()} account${queued === 1 ? '' : 's'} added to the paced block queue.` +
+        (alreadyQueued > 0 ? ` ${alreadyQueued.toLocaleString()} were already queued.` : ''),
       )
-      const details = [
-        `Blocked ${result.blockedDids.length.toLocaleString()} account${result.blockedDids.length === 1 ? '' : 's'}`,
-        result.failedDids.length > 0
-          ? `${result.failedDids.length.toLocaleString()} failed`
-          : '',
-        result.unattemptedDids.length > 0
-          ? `${result.unattemptedDids.length.toLocaleString()} not attempted`
-          : '',
-      ].filter(Boolean).join('; ')
-      setBlockMessage(`${details}.${result.failureMessage ? ` ${result.failureMessage}` : ''}`)
       setConfirmingBlock(false)
     } catch (cause) {
       setBlockMessage(cause instanceof Error ? cause.message : 'Could not block these accounts.')
@@ -1104,7 +1205,7 @@ function EngagementPanel({
             <div className="bulk-block-confirm" role="alertdialog" aria-label="Confirm bulk block">
               <p>
                 Block {blockableActors.length.toLocaleString()} account{blockableActors.length === 1 ? '' : 's'}?
-                This creates a Bluesky block for each one and may disrupt conversation threads.
+                osky will queue and pace the Bluesky blocks. Blocking may disrupt conversation threads.
               </p>
               {skippedActorCount > 0 && (
                 <small>
@@ -1128,8 +1229,8 @@ function EngagementPanel({
                   disabled={blocking || blockableActors.length === 0}
                 >
                   {blocking
-                    ? `Blocking ${blockProgress.completed.toLocaleString()} of ${blockProgress.total.toLocaleString()}…`
-                    : `Block ${blockableActors.length.toLocaleString()} accounts`}
+                    ? 'Adding to queue…'
+                    : `Queue ${blockableActors.length.toLocaleString()} blocks`}
                 </button>
               </div>
             </div>
@@ -1161,6 +1262,7 @@ function EngagementPanel({
                   key={actor.did}
                   profile={actor}
                   blocked={Boolean(actor.viewer?.blocking) || blockedDids.includes(actor.did)}
+                  queued={queuedDidSet.has(actor.did)}
                 />
               ))}
             </div>
@@ -1185,12 +1287,30 @@ function EngagementPanel({
 function SettingsPage({
   signedInHandle,
   theme,
+  blockQueue,
   onThemeChange,
+  onPauseBlockQueue,
+  onResumeBlockQueue,
+  onClearBlockQueue,
 }: {
   signedInHandle: string
   theme: ThemePreference
+  blockQueue: BlockQueueState
   onThemeChange: (theme: ThemePreference) => void
+  onPauseBlockQueue: () => void
+  onResumeBlockQueue: () => void
+  onClearBlockQueue: () => void
 }) {
+  const pendingBlocks = blockQueue.pending.length
+  const automaticPause = !blockQueue.userPaused && blockQueue.pausedUntil > Date.now()
+  const queueStatus = blockQueue.userPaused
+    ? 'Paused'
+    : automaticPause
+      ? `Waiting until ${new Date(blockQueue.pausedUntil).toLocaleTimeString()}`
+      : pendingBlocks > 0
+        ? 'Running while osky is open'
+        : 'Idle'
+
   return (
     <div className="settings-page">
       <div className="settings-heading">
@@ -1225,6 +1345,50 @@ function SettingsPage({
           configured here as they are added to osky.
         </p>
       </section>
+      <section className="settings-card block-queue-card">
+        <div className="block-queue-heading">
+          <div>
+            <h2>Block queue</h2>
+            <p>{queueStatus}</p>
+          </div>
+          <strong>{pendingBlocks.toLocaleString()} pending</strong>
+        </div>
+        <p>
+          Blocks are paced at no more than one every three seconds, with local
+          hourly and daily ceilings that preserve write capacity for posts and likes.
+          Unfinished work is saved in this browser.
+        </p>
+        {(blockQueue.completedCount > 0 || blockQueue.failedCount > 0) && (
+          <p className="block-queue-totals">
+            {blockQueue.completedCount.toLocaleString()} completed
+            {blockQueue.failedCount > 0
+              ? ` · ${blockQueue.failedCount.toLocaleString()} failed`
+              : ''}
+          </p>
+        )}
+        {blockQueue.lastError && (
+          <p className="block-queue-error" role="status">{blockQueue.lastError}</p>
+        )}
+        <div className="block-queue-actions">
+          {blockQueue.userPaused ? (
+            <button type="button" onClick={onResumeBlockQueue} disabled={pendingBlocks === 0}>
+              Resume
+            </button>
+          ) : (
+            <button type="button" onClick={onPauseBlockQueue} disabled={pendingBlocks === 0}>
+              Pause
+            </button>
+          )}
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={onClearBlockQueue}
+            disabled={pendingBlocks === 0}
+          >
+            Clear pending
+          </button>
+        </div>
+      </section>
     </div>
   )
 }
@@ -1239,6 +1403,7 @@ function ProfilePage({
   feedError,
   currentDid,
   recentlyBlocked,
+  queuedForBlock,
   onFeedModeChange,
   onOpenThread,
   onBlockProfile,
@@ -1252,18 +1417,20 @@ function ProfilePage({
   feedError: string
   currentDid: string
   recentlyBlocked: boolean
+  queuedForBlock: boolean
   onFeedModeChange: (mode: ProfileFeedMode) => void
   onOpenThread: (post: AppBskyFeedDefs.PostView) => void
   onBlockProfile: (profile: AppBskyActorDefs.ProfileViewDetailed) => Promise<BulkBlockResult>
 }) {
-  const [blockedDid, setBlockedDid] = useState<string | null>(null)
+  const [queuedDid, setQueuedDid] = useState<string | null>(null)
   const [confirmingBlock, setConfirmingBlock] = useState(false)
   const [blockingProfile, setBlockingProfile] = useState(false)
   const [blockError, setBlockError] = useState('')
 
   const blocked = Boolean(
-    profile?.viewer?.blocking || recentlyBlocked || (profile && blockedDid === profile.did),
+    profile?.viewer?.blocking || recentlyBlocked,
   )
+  const queued = Boolean(queuedForBlock || (profile && queuedDid === profile.did))
 
   async function blockProfile() {
     if (!profile) return
@@ -1271,10 +1438,13 @@ function ProfilePage({
     setBlockError('')
     try {
       const result = await onBlockProfile(profile)
-      if (!result.blockedDids.includes(profile.did)) {
-        throw new Error('Could not block this account.')
+      if (
+        !result.queuedDids.includes(profile.did) &&
+        !result.alreadyQueuedDids.includes(profile.did)
+      ) {
+        throw new Error('Could not queue this account for blocking.')
       }
-      setBlockedDid(profile.did)
+      setQueuedDid(profile.did)
       setConfirmingBlock(false)
     } catch (cause) {
       setBlockError(cause instanceof Error ? cause.message : 'Could not block this account.')
@@ -1346,6 +1516,8 @@ function ProfilePage({
               <div className="profile-block-actions">
                 {blocked ? (
                   <span className="profile-blocked-badge">Blocked</span>
+                ) : queued ? (
+                  <span className="profile-queued-badge">Queued to block</span>
                 ) : confirmingBlock ? (
                   <>
                     <button
@@ -1362,7 +1534,7 @@ function ProfilePage({
                       onClick={() => void blockProfile()}
                       disabled={blockingProfile}
                     >
-                      {blockingProfile ? 'Blocking…' : 'Confirm block'}
+                      {blockingProfile ? 'Queueing…' : 'Confirm block'}
                     </button>
                   </>
                 ) : (
@@ -1496,6 +1668,9 @@ export default function App() {
   const [engagementError, setEngagementError] = useState('')
   const [showScrollTop, setShowScrollTop] = useState(false)
   const [theme, setTheme] = useState<ThemePreference>(storedThemePreference)
+  const [blockQueue, setBlockQueue] = useState<BlockQueueState>(storedBlockQueue)
+  const blockQueueRef = useRef(blockQueue)
+  const blockQueueProcessingRef = useRef(false)
   const recentBlockTimesRef = useRef<Record<string, number> | null>(null)
   if (!recentBlockTimesRef.current) recentBlockTimesRef.current = storedRecentBlocks()
   const [recentBlockedDids, setRecentBlockedDids] = useState<string[]>(
@@ -1522,6 +1697,111 @@ export default function App() {
       // Keep the in-memory cache even when browser storage is unavailable.
     }
   }, [])
+
+  const updateBlockQueue = useCallback((
+    update: (current: BlockQueueState) => BlockQueueState,
+  ) => {
+    setBlockQueue((current) => {
+      const next = update(current)
+      blockQueueRef.current = next
+      return next
+    })
+  }, [])
+
+  useEffect(() => {
+    blockQueueRef.current = blockQueue
+    window.localStorage.setItem(BLOCK_QUEUE_STORAGE_KEY, JSON.stringify(blockQueue))
+  }, [blockQueue])
+
+  useEffect(() => {
+    const repo = didRef.current
+    const agent = agentRef.current
+    if (
+      status !== 'signed-in' ||
+      !repo ||
+      !agent ||
+      blockQueue.ownerDid !== repo ||
+      blockQueue.pending.length === 0 ||
+      blockQueue.userPaused ||
+      blockQueueProcessingRef.current
+    ) return
+
+    let cancelled = false
+    const delay = Math.max(0, nextBlockAt(blockQueue) - Date.now())
+    const timer = window.setTimeout(() => {
+      const item = blockQueueRef.current.pending[0]
+      if (!item || cancelled || blockQueueProcessingRef.current) return
+      blockQueueProcessingRef.current = true
+
+      void (async () => {
+        try {
+          await agent.app.bsky.graph.block.create(
+            { repo },
+            { subject: item.did, createdAt: new Date().toISOString() },
+          )
+          const completedAt = Date.now()
+          rememberBlockedDids([item.did])
+          updateBlockQueue((current) => ({
+            ...current,
+            pending: current.pending.filter((pending) => pending.did !== item.did),
+            writeTimestamps: [
+              ...current.writeTimestamps.filter((timestamp) => timestamp > completedAt - DAY_MS),
+              completedAt,
+            ],
+            completedCount: current.completedCount + 1,
+            pausedUntil: 0,
+            lastError: '',
+          }))
+        } catch (cause) {
+          const failedAt = Date.now()
+          const message = readableError(cause, 'Bluesky rejected a queued block.')
+          if (isRateLimitError(cause)) {
+            const resetAt = rateLimitResetAt(cause, failedAt) ?? failedAt + RATE_LIMIT_PAUSE_MS
+            updateBlockQueue((current) => ({
+              ...current,
+              pausedUntil: Math.max(resetAt + 5_000, failedAt + 30_000),
+              lastError: `Rate limited. The queue will resume after ${new Date(resetAt).toLocaleTimeString()}.`,
+            }))
+            return
+          }
+          if (isAuthenticationError(cause)) {
+            updateBlockQueue((current) => ({
+              ...current,
+              userPaused: true,
+              lastError: `${message} Reconnect your account, then resume the queue.`,
+            }))
+            return
+          }
+
+          updateBlockQueue((current) => {
+            const pending = current.pending.find((candidate) => candidate.did === item.did)
+            const attempts = (pending?.attempts ?? item.attempts) + 1
+            return {
+              ...current,
+              pending: attempts >= 3
+                ? current.pending.filter((candidate) => candidate.did !== item.did)
+                : [
+                    ...current.pending.filter((candidate) => candidate.did !== item.did),
+                    { did: item.did, attempts },
+                  ],
+              failedCount: current.failedCount + (attempts >= 3 ? 1 : 0),
+              pausedUntil: attempts >= 3 ? 0 : failedAt + RETRY_PAUSE_MS,
+              lastError: attempts >= 3
+                ? `${message} This account was removed after three attempts.`
+                : `${message} Retrying later.`,
+            }
+          })
+        } finally {
+          blockQueueProcessingRef.current = false
+        }
+      })()
+    }, delay)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [blockQueue, rememberBlockedDids, status, updateBlockQueue])
 
   useEffect(() => {
     window.localStorage.setItem(THEME_STORAGE_KEY, theme)
@@ -1653,53 +1933,55 @@ export default function App() {
 
   const blockActors = useCallback(async (
     actors: Array<{ did: string }>,
-    onProgress?: (completed: number, total: number) => void,
   ): Promise<BulkBlockResult> => {
-    const agent = agentRef.current
     const repo = didRef.current
-    if (!agent || !repo) throw new Error('You must be signed in to block accounts.')
+    if (!agentRef.current || !repo) {
+      throw new Error('You must be signed in to block accounts.')
+    }
 
-    const blockedDids: string[] = []
-    const failedDids: string[] = []
-    let failureMessage: string | undefined
-    let consecutiveFailures = 0
-    let completed = 0
-    let reportedBlockedCount = 0
-    for (const actor of actors) {
-      try {
-        await agent.app.bsky.graph.block.create(
-          { repo },
-          { subject: actor.did, createdAt: new Date().toISOString() },
-        )
-        blockedDids.push(actor.did)
-        consecutiveFailures = 0
-      } catch (cause) {
-        failedDids.push(actor.did)
-        consecutiveFailures += 1
-        failureMessage ??= readableError(cause, 'Bluesky rejected a block request.')
-        completed += 1
-        onProgress?.(completed, actors.length)
-        if (shouldStopBulkAction(cause, consecutiveFailures)) {
-          failureMessage = readableError(cause, 'Bluesky stopped the bulk block.')
-          break
-        }
-        continue
-      }
-      completed += 1
-      onProgress?.(completed, actors.length)
-      if (blockedDids.length - reportedBlockedCount >= 50) {
-        rememberBlockedDids(blockedDids.slice(reportedBlockedCount))
-        reportedBlockedCount = blockedDids.length
-      }
-    }
-    rememberBlockedDids(blockedDids.slice(reportedBlockedCount))
-    return {
-      blockedDids,
-      failedDids,
-      unattemptedDids: actors.slice(completed).map((actor) => actor.did),
-      failureMessage,
-    }
-  }, [rememberBlockedDids])
+    const uniqueDids = [...new Set(actors.map((actor) => actor.did))]
+    const current = blockQueueRef.current.ownerDid === repo
+      ? blockQueueRef.current
+      : emptyBlockQueue(repo)
+    const alreadyQueued = new Set(current.pending.map((item) => item.did))
+    const queuedDids = uniqueDids.filter((did) => !alreadyQueued.has(did))
+    const alreadyQueuedDids = uniqueDids.filter((did) => alreadyQueued.has(did))
+    const startingFresh = current.pending.length === 0
+
+    updateBlockQueue(() => ({
+      ...current,
+      pending: [
+        ...current.pending,
+        ...queuedDids.map((did) => ({ did, attempts: 0 })),
+      ],
+      completedCount: startingFresh ? 0 : current.completedCount,
+      failedCount: startingFresh ? 0 : current.failedCount,
+      lastError: startingFresh ? '' : current.lastError,
+    }))
+    return { queuedDids, alreadyQueuedDids }
+  }, [updateBlockQueue])
+
+  const pauseBlockQueue = useCallback(() => {
+    updateBlockQueue((current) => ({ ...current, userPaused: true }))
+  }, [updateBlockQueue])
+
+  const resumeBlockQueue = useCallback(() => {
+    updateBlockQueue((current) => ({
+      ...current,
+      userPaused: false,
+      lastError: '',
+    }))
+  }, [updateBlockQueue])
+
+  const clearBlockQueue = useCallback(() => {
+    updateBlockQueue((current) => ({
+      ...current,
+      pending: [],
+      userPaused: false,
+      pausedUntil: 0,
+      lastError: '',
+    }))
+  }, [updateBlockQueue])
 
   const toggleLike = useCallback(async (
     post: AppBskyFeedDefs.PostView,
@@ -2234,6 +2516,12 @@ export default function App() {
                   <span>Settings</span>
                 </a>
               </nav>
+              {blockQueue.ownerDid === didRef.current && blockQueue.pending.length > 0 && (
+                <a className="block-queue-nav" href="#/settings" onClick={openSettings}>
+                  <span>{blockQueue.userPaused ? 'Block queue paused' : 'Block queue'}</span>
+                  <strong>{blockQueue.pending.length.toLocaleString()}</strong>
+                </a>
+              )}
             </div>
           </aside>
 
@@ -2257,7 +2545,13 @@ export default function App() {
             <SettingsPage
               signedInHandle={signedInHandle}
               theme={theme}
+              blockQueue={blockQueue.ownerDid === didRef.current
+                ? blockQueue
+                : emptyBlockQueue(didRef.current ?? '')}
               onThemeChange={setTheme}
+              onPauseBlockQueue={pauseBlockQueue}
+              onResumeBlockQueue={resumeBlockQueue}
+              onClearBlockQueue={clearBlockQueue}
             />
           ) : profileActor ? (
             <ProfilePage
@@ -2273,6 +2567,11 @@ export default function App() {
                 profile &&
                 recentBlockedDids.includes(profile.did) &&
                 isRecentlyBlocked(profile.did),
+              )}
+              queuedForBlock={Boolean(
+                profile &&
+                blockQueue.ownerDid === didRef.current &&
+                blockQueue.pending.some((item) => item.did === profile.did)
               )}
               onFeedModeChange={setProfileFeedMode}
               onOpenThread={openThread}
@@ -2494,6 +2793,9 @@ export default function App() {
                     error={engagementError}
                     currentDid={didRef.current ?? ''}
                     blockedDids={recentBlockedDids.filter(isRecentlyBlocked)}
+                    queuedDids={blockQueue.ownerDid === didRef.current
+                      ? blockQueue.pending.map((item) => item.did)
+                      : []}
                     onClose={closeEngagement}
                     onOpenThread={openThread}
                     onBlockActors={blockActors}
