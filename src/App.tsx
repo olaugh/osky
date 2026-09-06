@@ -60,6 +60,8 @@ type PostActions = {
 type BulkBlockResult = {
   blockedDids: string[]
   failedDids: string[]
+  unattemptedDids: string[]
+  failureMessage?: string
 }
 
 const EngagementContext = createContext<OpenEngagement | null>(null)
@@ -98,7 +100,11 @@ function storedRecentBlocks() {
   }
 }
 
-async function getRelationships(actor: string, others: string[]) {
+async function getRelationships(
+  actor: string,
+  others: string[],
+  onProgress?: (checked: number, total: number) => void,
+) {
   const relationships = new Map<string, AppBskyGraphDefs.Relationship>()
   for (let index = 0; index < others.length; index += 30) {
     const response = await publicAgent.app.bsky.graph.getRelationships({
@@ -110,8 +116,31 @@ async function getRelationships(actor: string, others: string[]) {
         relationships.set(relationship.did, relationship)
       }
     }
+    onProgress?.(Math.min(index + 30, others.length), others.length)
   }
   return relationships
+}
+
+function readableError(cause: unknown, fallback: string) {
+  if (cause instanceof Error && cause.message) return cause.message
+  if (cause && typeof cause === 'object' && 'message' in cause) {
+    const message = cause.message
+    if (typeof message === 'string' && message) return message
+  }
+  return fallback
+}
+
+function shouldStopBulkAction(cause: unknown, consecutiveFailures: number) {
+  const message = readableError(cause, '').toLowerCase()
+  return consecutiveFailures >= 3 || [
+    '429',
+    'rate limit',
+    'dpop',
+    'session',
+    'token',
+    'auth',
+    'permission',
+  ].some((part) => message.includes(part))
 }
 
 function profileHref(actor: string) {
@@ -979,6 +1008,7 @@ function EngagementPanel({
   actors,
   quotes,
   loading,
+  progress,
   error,
   currentDid,
   blockedDids,
@@ -991,17 +1021,22 @@ function EngagementPanel({
   actors: AppBskyActorDefs.ProfileView[]
   quotes: AppBskyFeedDefs.PostView[]
   loading: boolean
+  progress: string
   error: string
   currentDid: string
   blockedDids: string[]
   onClose: () => void
   onOpenThread: (post: AppBskyFeedDefs.PostView) => void
-  onBlockActors: (actors: AppBskyActorDefs.ProfileView[]) => Promise<BulkBlockResult>
+  onBlockActors: (
+    actors: AppBskyActorDefs.ProfileView[],
+    onProgress?: (completed: number, total: number) => void,
+  ) => Promise<BulkBlockResult>
 }) {
   const record = AppBskyFeedPost.isRecord(post.record) ? post.record : null
   const title = kind === 'likes' ? 'Likes' : 'Reposts'
   const [confirmingBlock, setConfirmingBlock] = useState(false)
   const [blocking, setBlocking] = useState(false)
+  const [blockProgress, setBlockProgress] = useState({ completed: 0, total: 0 })
   const [blockMessage, setBlockMessage] = useState('')
   const blockableActors = kind === 'likes'
     ? actors.filter((actor) => (
@@ -1014,14 +1049,23 @@ function EngagementPanel({
 
   async function blockAllShown() {
     setBlocking(true)
+    setBlockProgress({ completed: 0, total: blockableActors.length })
     setBlockMessage('')
     try {
-      const result = await onBlockActors(blockableActors)
-      setBlockMessage(
-        result.failedDids.length > 0
-          ? `Blocked ${result.blockedDids.length} account${result.blockedDids.length === 1 ? '' : 's'}; ${result.failedDids.length} failed.`
-          : `Blocked ${result.blockedDids.length} account${result.blockedDids.length === 1 ? '' : 's'}.`,
+      const result = await onBlockActors(
+        blockableActors,
+        (completed, total) => setBlockProgress({ completed, total }),
       )
+      const details = [
+        `Blocked ${result.blockedDids.length.toLocaleString()} account${result.blockedDids.length === 1 ? '' : 's'}`,
+        result.failedDids.length > 0
+          ? `${result.failedDids.length.toLocaleString()} failed`
+          : '',
+        result.unattemptedDids.length > 0
+          ? `${result.unattemptedDids.length.toLocaleString()} not attempted`
+          : '',
+      ].filter(Boolean).join('; ')
+      setBlockMessage(`${details}.${result.failureMessage ? ` ${result.failureMessage}` : ''}`)
       setConfirmingBlock(false)
     } catch (cause) {
       setBlockMessage(cause instanceof Error ? cause.message : 'Could not block these accounts.')
@@ -1059,12 +1103,12 @@ function EngagementPanel({
           {confirmingBlock ? (
             <div className="bulk-block-confirm" role="alertdialog" aria-label="Confirm bulk block">
               <p>
-                Block {blockableActors.length} account{blockableActors.length === 1 ? '' : 's'}?
+                Block {blockableActors.length.toLocaleString()} account{blockableActors.length === 1 ? '' : 's'}?
                 This creates a Bluesky block for each one and may disrupt conversation threads.
               </p>
               {skippedActorCount > 0 && (
                 <small>
-                  {skippedActorCount} account{skippedActorCount === 1 ? '' : 's'} skipped:
+                  {skippedActorCount.toLocaleString()} account{skippedActorCount === 1 ? '' : 's'} skipped:
                   your account and any already-blocked accounts are excluded.
                 </small>
               )}
@@ -1083,7 +1127,9 @@ function EngagementPanel({
                   onClick={() => void blockAllShown()}
                   disabled={blocking || blockableActors.length === 0}
                 >
-                  {blocking ? 'Blocking…' : `Block ${blockableActors.length} accounts`}
+                  {blocking
+                    ? `Blocking ${blockProgress.completed.toLocaleString()} of ${blockProgress.total.toLocaleString()}…`
+                    : `Block ${blockableActors.length.toLocaleString()} accounts`}
                 </button>
               </div>
             </div>
@@ -1093,7 +1139,7 @@ function EngagementPanel({
               className="bulk-block-button"
               onClick={() => setConfirmingBlock(true)}
             >
-              Block all {blockableActors.length} shown
+              Block all {blockableActors.length.toLocaleString()} accounts
             </button>
           ) : null}
           {blockMessage && <p className="bulk-block-message" role="status">{blockMessage}</p>}
@@ -1102,7 +1148,7 @@ function EngagementPanel({
       {loading ? (
         <div className="trends-loading" aria-live="polite">
           <div className="spinner spinner-small" />
-          <span>Loading {title.toLowerCase()}…</span>
+          <span>{progress || `Loading ${title.toLowerCase()}…`}</span>
         </div>
       ) : error ? (
         <p className="trends-message">{error}</p>
@@ -1446,6 +1492,7 @@ export default function App() {
   const [engagementActors, setEngagementActors] = useState<AppBskyActorDefs.ProfileView[]>([])
   const [engagementQuotes, setEngagementQuotes] = useState<AppBskyFeedDefs.PostView[]>([])
   const [engagementLoading, setEngagementLoading] = useState(false)
+  const [engagementProgress, setEngagementProgress] = useState('')
   const [engagementError, setEngagementError] = useState('')
   const [showScrollTop, setShowScrollTop] = useState(false)
   const [theme, setTheme] = useState<ThemePreference>(storedThemePreference)
@@ -1500,20 +1547,47 @@ export default function App() {
     setEngagementQuotes([])
     setEngagementError('')
     setEngagementLoading(true)
+    setEngagementProgress(`Loading ${kind}…`)
 
     try {
       if (kind === 'likes') {
-        const response = await publicAgent.app.bsky.feed.getLikes({
-          uri: post.uri,
-          cid: post.cid,
-          limit: 100,
-        })
+        const actorsByDid = new Map<string, AppBskyActorDefs.ProfileView>()
+        let cursor: string | undefined
+        do {
+          const response = await publicAgent.app.bsky.feed.getLikes({
+            uri: post.uri,
+            cid: post.cid,
+            limit: 100,
+            cursor,
+          })
+          if (requestId !== engagementRequestRef.current) return
+          for (const like of response.data.likes) {
+            actorsByDid.set(like.actor.did, like.actor)
+          }
+          cursor = response.data.cursor
+          const loaded = actorsByDid.size.toLocaleString()
+          const expected = post.likeCount && post.likeCount > actorsByDid.size
+            ? ` of ${post.likeCount.toLocaleString()}`
+            : ''
+          setEngagementProgress(`Loading likes… ${loaded}${expected}`)
+        } while (cursor)
+
         if (requestId === engagementRequestRef.current) {
-          let actors = response.data.likes.map((like) => like.actor)
+          let actors = [...actorsByDid.values()]
           if (didRef.current) {
+            setEngagementProgress(
+              `Checking blocked accounts… 0 of ${actors.length.toLocaleString()}`,
+            )
             const relationships = await getRelationships(
               didRef.current,
               actors.map((actor) => actor.did),
+              (checked, total) => {
+                if (requestId === engagementRequestRef.current) {
+                  setEngagementProgress(
+                    `Checking blocked accounts… ${checked.toLocaleString()} of ${total.toLocaleString()}`,
+                  )
+                }
+              },
             )
             actors = actors.map((actor) => {
               const relationship = relationships.get(actor.did)
@@ -1570,12 +1644,16 @@ export default function App() {
         setEngagementError(cause instanceof Error ? cause.message : `Could not load ${kind}.`)
       }
     } finally {
-      if (requestId === engagementRequestRef.current) setEngagementLoading(false)
+      if (requestId === engagementRequestRef.current) {
+        setEngagementLoading(false)
+        setEngagementProgress('')
+      }
     }
   }, [isRecentlyBlocked])
 
   const blockActors = useCallback(async (
     actors: Array<{ did: string }>,
+    onProgress?: (completed: number, total: number) => void,
   ): Promise<BulkBlockResult> => {
     const agent = agentRef.current
     const repo = didRef.current
@@ -1583,6 +1661,10 @@ export default function App() {
 
     const blockedDids: string[] = []
     const failedDids: string[] = []
+    let failureMessage: string | undefined
+    let consecutiveFailures = 0
+    let completed = 0
+    let reportedBlockedCount = 0
     for (const actor of actors) {
       try {
         await agent.app.bsky.graph.block.create(
@@ -1590,12 +1672,33 @@ export default function App() {
           { subject: actor.did, createdAt: new Date().toISOString() },
         )
         blockedDids.push(actor.did)
-      } catch {
+        consecutiveFailures = 0
+      } catch (cause) {
         failedDids.push(actor.did)
+        consecutiveFailures += 1
+        failureMessage ??= readableError(cause, 'Bluesky rejected a block request.')
+        completed += 1
+        onProgress?.(completed, actors.length)
+        if (shouldStopBulkAction(cause, consecutiveFailures)) {
+          failureMessage = readableError(cause, 'Bluesky stopped the bulk block.')
+          break
+        }
+        continue
+      }
+      completed += 1
+      onProgress?.(completed, actors.length)
+      if (blockedDids.length - reportedBlockedCount >= 50) {
+        rememberBlockedDids(blockedDids.slice(reportedBlockedCount))
+        reportedBlockedCount = blockedDids.length
       }
     }
-    rememberBlockedDids(blockedDids)
-    return { blockedDids, failedDids }
+    rememberBlockedDids(blockedDids.slice(reportedBlockedCount))
+    return {
+      blockedDids,
+      failedDids,
+      unattemptedDids: actors.slice(completed).map((actor) => actor.did),
+      failureMessage,
+    }
   }, [rememberBlockedDids])
 
   const toggleLike = useCallback(async (
@@ -1662,6 +1765,7 @@ export default function App() {
     setEngagementActors([])
     setEngagementQuotes([])
     setEngagementError('')
+    setEngagementProgress('')
   }, [])
 
   const loadFeed = useCallback(async (nextCursor?: string, append = false) => {
@@ -2386,6 +2490,7 @@ export default function App() {
                     actors={engagementActors}
                     quotes={engagementQuotes}
                     loading={engagementLoading}
+                    progress={engagementProgress}
                     error={engagementError}
                     currentDid={didRef.current ?? ''}
                     blockedDids={recentBlockedDids.filter(isRecentlyBlocked)}
