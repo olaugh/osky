@@ -84,8 +84,44 @@ type BlockQueueState = {
   lastError: string
 }
 
+type ChromeMemoryInfo = {
+  usedJSHeapSize: number
+}
+
 const EngagementContext = createContext<OpenEngagement | null>(null)
 const PostActionsContext = createContext<PostActions | null>(null)
+
+function MemoryHud() {
+  const [usedBytes, setUsedBytes] = useState<number | null>(null)
+
+  useEffect(() => {
+    const readMemory = () => {
+      const memory = (performance as Performance & { memory?: ChromeMemoryInfo }).memory
+      setUsedBytes(memory?.usedJSHeapSize ?? null)
+    }
+
+    readMemory()
+    const interval = window.setInterval(readMemory, 2_000)
+    return () => window.clearInterval(interval)
+  }, [])
+
+  if (usedBytes === null) return null
+
+  const megabytes = usedBytes / (1024 * 1024)
+  const displayedMegabytes = megabytes >= 100
+    ? Math.round(megabytes).toLocaleString()
+    : megabytes.toFixed(1)
+
+  return (
+    <output
+      className="memory-hud"
+      aria-label={`JavaScript heap: ${displayedMegabytes} megabytes`}
+      title="JavaScript heap used by osky. Chrome does not let pages read the tab's full memory usage, so images, video, DOM, and browser overhead are not included."
+    >
+      <span>JS</span> {displayedMegabytes} MB
+    </output>
+  )
+}
 
 function storedThemePreference(): ThemePreference {
   const stored = window.localStorage.getItem(THEME_STORAGE_KEY)
@@ -2413,6 +2449,7 @@ export default function App() {
 
   return (
     <main className={`shell ${status === 'signed-in' ? 'shell-signed-in' : ''}`}>
+      <MemoryHud />
       {status !== 'signed-in' && (
         <header className="masthead">
           <a className="wordmark" href="#" aria-label="osky home">
